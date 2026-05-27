@@ -56,6 +56,63 @@ services:
     entrypoint: ["/bin/sh", "-c", "ollama pull llama3:8b"]
     restart: "no"
 
+  ml-service:
+    build: ./ml-service
+    container_name: aura-ml-service
+    restart: unless-stopped
+    ports:
+      # Host-bound to localhost only; worker/web reach it over the compose network.
+      - "127.0.0.1:8100:8100"
+    volumes:
+      # Shared upload volume: web/worker write here, ml-service reads by path.
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build: ./web
+    container_name: aura-web
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://aura:aura@postgres:5432/aura
+      ML_SERVICE_URL: http://ml-service:8100
+      UPLOAD_DIR: /data/uploads
+      NODE_ENV: production
+      PORT: "3100"
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-service:
+        condition: service_healthy
+
+  # pg-boss consumer — same image as web, different entrypoint. No port, no file access
+  # (it only relays job paths to ml-service).
+  worker:
+    build: ./web
+    container_name: aura-worker
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    environment:
+      DATABASE_URL: postgresql://aura:aura@postgres:5432/aura
+      ML_SERVICE_URL: http://ml-service:8100
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-service:
+        condition: service_healthy
+
 volumes:
   aura_pgdata:
   aura_ollama:

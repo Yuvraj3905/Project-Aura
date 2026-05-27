@@ -20,17 +20,32 @@ hallucinating. 100% open source / free stack — local inference, no paid LLM AP
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres ollama ollama-pull
+docker compose up -d postgres ollama ollama-pull ml-service
 ```
 
 `postgres` bootstraps the schema on a fresh volume (`db/init.sql` then
 `db/migrations/0001_init_schema.sql`). `ollama-pull` downloads `llama3:8b` once, then
-exits. Verify:
+exits. `ml-service` bakes the `bge-small-en-v1.5` embedding model into its image, so it
+starts offline. Verify:
 
 ```bash
 docker compose exec postgres psql -U aura -d aura -c '\dt'
 docker compose exec ollama ollama list
+curl -s localhost:8100/health
 ```
 
-Application services (`ml-service`, `worker`, `rasa`, `rasa-actions`, `web`) are added
-in later build phases.
+`/health` returns the active embedding model and dimension (384).
+
+## ml-service
+
+Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-dim,
+L2-normalized for cosine search). Endpoints so far: `GET /health`, `POST /embed`.
+
+Run the tests inside the image:
+
+```bash
+docker compose run --rm --no-deps ml-service pytest
+```
+
+The remaining services (`worker`, `rasa`, `rasa-actions`, `web`) are added in later
+build phases.

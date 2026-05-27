@@ -1,0 +1,3 @@
+# Heavy, slow-changing deps. Kept separate so app-dep changes don't bust the
+# torch / embedding-model image layers.
+sentence-transformers>=2.7

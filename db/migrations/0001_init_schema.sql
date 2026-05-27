@@ -8,9 +8,10 @@
 
 -- documents: one row per uploaded source file ------------------------------------
 CREATE TABLE IF NOT EXISTS documents (
-    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    filename    text        NOT NULL,
-    mime_type   text        NOT NULL,
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    filename     text        NOT NULL,   -- original client filename (display only)
+    storage_path text        NOT NULL,   -- basename under the upload root (e.g. "<id>.pdf")
+    mime_type    text        NOT NULL,
     status      text        NOT NULL DEFAULT 'uploaded'
                             CHECK (status IN ('uploaded', 'processing', 'ready', 'failed')),
     summary     text,                          -- doc-level contextual summary (set when ready)
