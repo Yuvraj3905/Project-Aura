@@ -1,0 +1,61 @@
+# Aura — local stack. Unique host ports to avoid collisions with other projects.
+# Port map (host -> container):
+#   postgres     : 5440  -> 5432   (5432/5433/5435 already taken on this machine)
+#   ollama       : 11435 -> 11434  (host 11434 already in use)
+# Reserved for later services (added in their build phases):
+#   web          : 3100
+#   ml-service   : 8100
+#   rasa         : 5105
+#   rasa-actions : 5155
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aura-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aura
+      POSTGRES_PASSWORD: aura
+      POSTGRES_DB: aura
+    ports:
+      - "5440:5432"
+    volumes:
+      - aura_pgdata:/var/lib/postgresql/data
+      # Init dir runs *.sql in alphabetical order: extension (00) before schema (01).
+      - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
+      - ./db/migrations/0001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: aura-ollama
+    restart: unless-stopped
+    ports:
+      - "11435:11434"
+    volumes:
+      - aura_ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: pull the model once ollama is serving, then exit.
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: aura-ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull llama3:8b"]
+    restart: "no"
+
+volumes:
+  aura_pgdata:
+  aura_ollama:

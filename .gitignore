@@ -1,0 +1,43 @@
+# deps
+node_modules/
+**/node_modules/
+.pnp
+.pnp.js
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# next.js
+.next/
+out/
+build/
+dist/
+
+# rasa
+.rasa/
+models/
+*.tar.gz
+
+# db data (volumes are docker-managed, but ignore any local dumps)
+pgdata/
+*.dump
+
+# uploaded documents (never pushed)
+data/
+ml-service/data/
+
+# design docs / specs (local only — never pushed)
+docs/
+
+# logs / os
+*.log
+.DS_Store
