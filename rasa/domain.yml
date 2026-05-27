@@ -1,0 +1,29 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - affirm
+  - deny
+  - bot_challenge
+  - tech_query
+
+responses:
+  utter_greet:
+    - text: "Hi, I'm Aura — your solutions architect. Ask me a technical question about the product, or say you'd like to open a support ticket."
+
+  utter_goodbye:
+    - text: "Goodbye. Reach out any time."
+
+  utter_iamabot:
+    - text: "I'm Aura, an automated sales engineer assistant backed by your internal docs."
+
+  utter_please_rephrase:
+    - text: "I'm not sure I understood. Could you rephrase your technical question?"
+
+actions:
+  - action_tech_query
+
+session_config:
+  session_expiration_time: 1440   # minutes (24h) — multi-day negotiations resume context
+  carry_over_slots_to_new_session: true

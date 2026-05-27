@@ -84,6 +84,7 @@ services:
     environment:
       DATABASE_URL: postgresql://aura:aura@postgres:5432/aura
       ML_SERVICE_URL: http://ml-service:8100
+      RASA_URL: http://rasa:5005
       UPLOAD_DIR: /data/uploads
       NODE_ENV: production
       PORT: "3100"
@@ -112,6 +113,34 @@ services:
         condition: service_healthy
       ml-service:
         condition: service_healthy
+
+  # Custom action server — loads ./rasa/actions; calls ml-service /answer.
+  rasa-actions:
+    image: rasa/rasa-sdk:3.6.2
+    container_name: aura-rasa-actions
+    restart: unless-stopped
+    ports:
+      - "5155:5055"
+    volumes:
+      - ./rasa/actions:/app/actions
+    environment:
+      ML_SERVICE_URL: http://ml-service:8100
+
+  # Dialogue manager. Train first:  docker compose run --rm rasa train
+  rasa:
+    image: rasa/rasa:3.6.20-full
+    container_name: aura-rasa
+    restart: unless-stopped
+    ports:
+      - "5105:5005"
+    volumes:
+      - ./rasa:/app
+    command: ["run", "--enable-api", "--cors", "*"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rasa-actions:
+        condition: service_started
 
 volumes:
   aura_pgdata:

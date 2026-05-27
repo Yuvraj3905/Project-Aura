@@ -1,0 +1,12 @@
+action_endpoint:
+  url: "http://rasa-actions:5055/webhook"
+
+# Multi-day conversation state persisted in Postgres (same DB as pgvector / pg-boss).
+tracker_store:
+  type: SQL
+  dialect: postgresql
+  url: postgres
+  port: 5432
+  db: aura
+  username: aura
+  password: aura
