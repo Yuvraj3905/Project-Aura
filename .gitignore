@@ -26,6 +26,10 @@ dist/
 .rasa/
 models/
 *.tar.gz
+# rasa/keras runtime caches written into the mounted project dir
+rasa/.config/
+rasa/.keras/
+rasa/.rasa/
 
 # db data (volumes are docker-managed, but ignore any local dumps)
 pgdata/
