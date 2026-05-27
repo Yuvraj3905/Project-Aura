@@ -1,0 +1,28 @@
+{
+  "name": "aura-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "tsx server.ts",
+    "worker": "tsx worker/index.ts"
+  },
+  "dependencies": {
+    "next": "^14.2.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "pg": "^8.12.0",
+    "pg-boss": "^9.0.3",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "tsx": "^4.16.2",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/pg": "^8.11.6",
+    "@types/ws": "^8.5.11"
+  }
+}
