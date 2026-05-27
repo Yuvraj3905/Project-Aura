@@ -7,6 +7,31 @@ intents:
   - deny
   - bot_challenge
   - tech_query
+  - open_ticket
+
+slots:
+  email:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: ticket_form
+            requested_slot: email
+  issue_description:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: ticket_form
+            requested_slot: issue_description
+
+forms:
+  ticket_form:
+    required_slots:
+      - email
+      - issue_description
 
 responses:
   utter_greet:
@@ -21,8 +46,22 @@ responses:
   utter_please_rephrase:
     - text: "I'm not sure I understood. Could you rephrase your technical question?"
 
+  utter_ask_email:
+    - text: "What's the best email address to reach you at?"
+
+  utter_ask_issue_description:
+    - text: "Please describe the issue you're running into."
+
+  utter_ticket_created:
+    - text: "Thanks — I've opened a support ticket. Our team will follow up by email."
+
+  utter_ticket_failed:
+    - text: "Sorry, I couldn't create the ticket right now. Please try again shortly."
+
 actions:
   - action_tech_query
+  - action_submit_ticket
+  - validate_ticket_form
 
 session_config:
   session_expiration_time: 1440   # minutes (24h) — multi-day negotiations resume context

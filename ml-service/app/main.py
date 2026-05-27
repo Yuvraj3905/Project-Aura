@@ -7,6 +7,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .config import settings
+from .db import create_ticket, get_conn
 from .embeddings import embed_texts
 from .ingest import ingest_document
 from .rag.answer import answer_query
@@ -83,3 +84,23 @@ def answer(req: AnswerRequest) -> AnswerResponse:
     """Retrieve grounded context and generate an answer (or refuse if unsupported)."""
     result = answer_query(req.query, req.top_k)
     return AnswerResponse(**result)
+
+
+class TicketRequest(BaseModel):
+    email: str
+    description: str
+    session_id: str | None = None
+    subject: str | None = None
+
+
+class TicketResponse(BaseModel):
+    ticket_id: str
+
+
+@app.post("/tickets", response_model=TicketResponse)
+def tickets(req: TicketRequest) -> TicketResponse:
+    """Create a support ticket (called by the Rasa ticket form)."""
+    with get_conn() as conn:
+        ticket_id = create_ticket(conn, req.email, req.description, req.session_id, req.subject)
+        conn.commit()
+    return TicketResponse(ticket_id=ticket_id)

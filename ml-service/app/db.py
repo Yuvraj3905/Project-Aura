@@ -18,6 +18,25 @@ def get_conn():
         conn.close()
 
 
+def create_ticket(
+    conn,
+    email: str,
+    description: str,
+    session_id: str | None = None,
+    subject: str | None = None,
+) -> str:
+    """Insert a support ticket and return its id."""
+    row = conn.execute(
+        """
+        INSERT INTO support_tickets (email, subject, description, session_id)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id
+        """,
+        (email, subject, description, session_id),
+    ).fetchone()
+    return str(row[0])
+
+
 def fetch_document(conn, document_id: str) -> dict:
     """Return {filename, storage_path, mime_type} for a document, or raise if missing."""
     row = conn.execute(
