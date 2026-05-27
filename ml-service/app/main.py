@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from .config import settings
 from .embeddings import embed_texts
 from .ingest import ingest_document
+from .rag.answer import answer_query
 
 app = FastAPI(title="Aura ml-service", version="0.1.0")
 
@@ -57,3 +58,28 @@ def ingest(req: IngestRequest) -> IngestResponse:
     except Exception as exc:  # noqa: BLE001 — surface as 500 so the worker retries
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return IngestResponse(document_id=req.document_id, status="ready", n_chunks=n_chunks)
+
+
+class Citation(BaseModel):
+    document_id: str
+    ordinal: int
+    score: float
+
+
+class AnswerRequest(BaseModel):
+    query: str
+    session_id: str | None = None  # forwarded by Rasa; state lives in Rasa, not here
+    top_k: int | None = None
+
+
+class AnswerResponse(BaseModel):
+    answer: str
+    grounded: bool
+    citations: list[Citation]
+
+
+@app.post("/answer", response_model=AnswerResponse)
+def answer(req: AnswerRequest) -> AnswerResponse:
+    """Retrieve grounded context and generate an answer (or refuse if unsupported)."""
+    result = answer_query(req.query, req.top_k)
+    return AnswerResponse(**result)
