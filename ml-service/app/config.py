@@ -27,7 +27,10 @@ class Settings(BaseSettings):
     chunk_tokens: int = 512
     chunk_overlap: int = 64
     retrieval_top_k: int = 5
-    retrieval_min_score: float = 0.30
+    # Cosine-similarity floor for the hard anti-hallucination guard. bge-small baselines
+    # unrelated text around ~0.3, relevant matches ~0.5-0.8, so 0.45 blocks off-topic
+    # queries before the LLM is ever called.
+    retrieval_min_score: float = 0.45
 
 
 settings = Settings()
