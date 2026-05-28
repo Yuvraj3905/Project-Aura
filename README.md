@@ -52,6 +52,97 @@ Then open <http://localhost:3100>: upload a `.pdf` / `.docx` / `.txt` / `.md`, w
 its status flip to **ready** over WebSocket, then ask a technical question or say
 "open a support ticket".
 
+## How to use
+
+### A. Web UI — <http://localhost:3100>
+
+1. **Upload a document.** Pick a `.pdf`, `.docx`, `.txt`, or `.md` (≤50 MB). The doc
+   appears in the **Knowledge base** list with status `processing`. The WebSocket
+   pushes a live update to `ready` (or `failed`) when ingestion completes; no refresh
+   needed. Large docs take longer — hierarchical summarization, chunking, and
+   embedding run on the local LLM.
+2. **Ask a technical question.** Type into the chat box. Examples that exercise the
+   different paths:
+   - `does the API support OAuth 2.0 with custom claims` — `tech_query` → grounded
+     answer + `Sources: doc <id>·#<chunk>` line.
+   - `what is the request timeout limit for the billing service` — same path; cites
+     the chunk that mentions the limit.
+   - `what is the capital of France` — off-topic; the cosine score falls below the
+     `0.45` floor, so the LLM is never called and Aura replies "I don't have that
+     information in the current knowledge base."
+3. **Open a support ticket.** Say `I want to open a support ticket` (or "raise a
+   ticket", "report a problem", etc.). Rasa runs the `ticket_form`:
+   - Asks for your email — malformed emails are rejected and re-asked.
+   - Asks for an issue description.
+   - Confirms the ticket and writes a row to `support_tickets` via ml-service
+     `/tickets`.
+4. **Multi-day continuation.** Rasa persists session state in Postgres (24-hour
+   default expiration, slots carry over), so re-opening a conversation with the same
+   `sessionId` resumes context.
+
+### B. HTTP API (curl)
+
+The web UI just talks to these endpoints — they're directly useful for scripting,
+RFP automation, or service-to-service integration.
+
+```bash
+# Upload + enqueue (returns 202 with a documentId)
+curl -X POST -F "file=@./manual.pdf" http://localhost:3100/api/upload
+
+# Poll ingestion status (WebSocket fallback)
+curl http://localhost:3100/api/documents/<documentId>
+
+# Chat turn through Rasa
+curl -X POST http://localhost:3100/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"sessionId":"sales-acme-2026-05","message":"Does v1 support custom claims?"}'
+
+# Direct RAG answer (skip Rasa — useful for batch / scripted Q&A over ready docs)
+curl -X POST http://localhost:8100/answer \
+  -H 'content-type: application/json' \
+  -d '{"query":"What TLS versions are accepted?"}'
+
+# File a ticket programmatically
+curl -X POST http://localhost:8100/tickets \
+  -H 'content-type: application/json' \
+  -d '{"email":"ops@acme.com","description":"500 on /v2/token","session_id":"acme"}'
+```
+
+### C. Operations
+
+```bash
+# Tail logs for a service
+docker compose logs -f ml-service worker
+
+# Inspect what's been ingested
+docker compose exec postgres psql -U aura -d aura \
+  -c "select id, filename, status, n_chunks from documents order by created_at desc;"
+
+# Tickets queue
+docker compose exec postgres psql -U aura -d aura \
+  -c "select id, email, status, created_at from support_tickets order by created_at desc;"
+
+# Retrain Rasa after editing rasa/data/*.yml or rasa/domain.yml
+docker compose run --rm rasa train
+docker compose restart rasa
+
+# Tear it all down (data volumes preserved)
+docker compose down
+
+# Nuke volumes too (DB, ollama model cache, uploaded files)
+docker compose down -v && rm -rf data/
+```
+
+### Tuning knobs (in `.env`)
+
+| Var | Default | Effect |
+|-----|---------|--------|
+| `CHUNK_TOKENS` | 512 | Chunk size before the summary prefix |
+| `CHUNK_OVERLAP` | 64 | Tokens shared between adjacent chunks |
+| `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt |
+| `RETRIEVAL_MIN_SCORE` | 0.45 | Cosine floor — below this, the LLM is **not** called (anti-hallucination guard) |
+| `OLLAMA_MODEL` | `llama3:8b` | Local LLM (swap in any Ollama-pulled tag) |
+
 ### Data flow
 
 - **Ingestion:** upload → `/api/upload` saves the file + enqueues a `process_document`
