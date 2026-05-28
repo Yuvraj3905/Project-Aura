@@ -77,7 +77,10 @@ export default function Home() {
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 760, margin: "0 auto", padding: "2rem" }}>
       <h1 style={{ marginBottom: 0 }}>Aura</h1>
-      <p style={{ color: "#666", marginTop: 4 }}>Autonomous B2B Solutions Architect</p>
+      <p style={{ color: "#666", marginTop: 4 }}>
+        Autonomous B2B Solutions Architect ·{" "}
+        <a href="/dashboard" style={{ color: "#0969da" }}>dashboard</a>
+      </p>
 
       <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: "1rem", marginTop: "1rem" }}>
         <h2 style={{ fontSize: "1rem" }}>Knowledge base</h2>

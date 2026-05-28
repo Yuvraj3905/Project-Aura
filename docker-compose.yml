@@ -126,6 +126,17 @@ services:
     environment:
       ML_SERVICE_URL: http://ml-service:8100
 
+  # Live container-log viewer (raw stdout/stderr per service).
+  # Bound to localhost: the socket mount exposes all containers on this host.
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: aura-dozzle
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:9999:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
   # Dialogue manager. Train first:  docker compose run --rm rasa train
   rasa:
     image: rasa/rasa:3.6.20-full

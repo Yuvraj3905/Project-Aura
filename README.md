@@ -80,6 +80,21 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    default expiration, slots carry over), so re-opening a conversation with the same
    `sessionId` resumes context.
 
+### A2. Dashboard — <http://localhost:3100/dashboard>
+
+Auto-refreshing operations view of the request travel across services:
+
+- **Documents** — every upload with status pill (`uploaded` → `processing` →
+  `ready`/`failed`), chunk count, age. Click a row for the full trail (doc-level
+  summary + matching pg-boss job history with retries, durations, errors).
+- **pg-boss jobs** — queue name, state, retry count, linked `documentId`, durations.
+- **Chat sessions** — distinct Rasa `sender_id` with user/bot turn counts. Click one
+  to see the event stream (intents + actions in order).
+- **Tickets** — recent `support_tickets` rows.
+- **Filter** by `documentId`, `sessionId`, or email across all panels.
+- **Raw container logs** — link in the header opens **Dozzle** at
+  <http://localhost:9999> (live stdout/stderr per service, search, multi-tail).
+
 ### B. HTTP API (curl)
 
 The web UI just talks to these endpoints — they're directly useful for scripting,
