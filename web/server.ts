@@ -12,7 +12,13 @@ const handle = app.getRequestHandler();
 async function main(): Promise<void> {
   await app.prepare();
 
-  const server = createServer((req, res) => handle(req, res));
+  const server = createServer((req, res) => {
+    // We are not behind a trusted proxy — stamp the real socket address as
+    // X-Forwarded-For so Edge middleware can do reliable loopback / IP checks.
+    // Overwrite any client-supplied value to block spoofing.
+    req.headers["x-forwarded-for"] = req.socket.remoteAddress ?? "";
+    return handle(req, res);
+  });
   const wss = new WebSocketServer({ server, path: "/ws" });
 
   function broadcast(obj: unknown): void {

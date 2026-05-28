@@ -88,8 +88,11 @@ services:
       UPLOAD_DIR: /data/uploads
       NODE_ENV: production
       PORT: "3100"
+      DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
     ports:
-      - "3100:3100"
+      # Bound to localhost — the dashboard exposes PII (chat, ticket emails, doc
+      # filenames + summaries). LAN access requires DASHBOARD_TOKEN + a tunnel.
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./data:/data
     depends_on:

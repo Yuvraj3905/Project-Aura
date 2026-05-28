@@ -95,6 +95,17 @@ Auto-refreshing operations view of the request travel across services:
 - **Raw container logs** — link in the header opens **Dozzle** at
   <http://localhost:9999> (live stdout/stderr per service, search, multi-tail).
 
+**Auth.** Two layers protect the dashboard (it surfaces chat content, ticket emails,
+and document filenames/summaries):
+
+1. **Network gate** — `web` is bound to `127.0.0.1` in `docker-compose.yml`, so the
+   dashboard is unreachable from the LAN by default.
+2. **Opt-in token** — set `DASHBOARD_TOKEN` in `.env` to require it on every
+   `/api/dashboard/*` and `/dashboard` request. API callers send
+   `x-dashboard-token: <token>`; browsers visit `/dashboard?t=<token>` once to mint
+   an `aura_dash` cookie (httpOnly, SameSite=Strict). Required if you ever change
+   the host port binding to expose the UI beyond loopback.
+
 ### B. HTTP API (curl)
 
 The web UI just talks to these endpoints — they're directly useful for scripting,
