@@ -131,6 +131,16 @@ export default function Dashboard() {
     const r = await fetch(`/api/dashboard/chats/${encodeURIComponent(id)}`).then((r) => r.json());
     setSelectedSession({ id, events: r.events ?? [] });
   }
+  async function setTicketStatus(id: string, status: string) {
+    // Optimistic update; refresh reconciles with the server.
+    setTickets((ts) => ts.map((t) => (t.id === id ? { ...t, status } : t)));
+    await fetch(`/api/dashboard/tickets/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+    refresh();
+  }
 
   const f = filter.trim().toLowerCase();
   const filteredDocs = !f
@@ -222,12 +232,13 @@ export default function Dashboard() {
 
       <Section title={`Tickets (${filteredTickets.length})`}>
         <Table
-          headers={["email", "description", "session", "status", "created"]}
+          headers={["email", "description", "session", "status", "actions", "created"]}
           rows={filteredTickets.map((t) => [
             t.email,
             t.description,
             t.session_id ?? "—",
             pill(t.status),
+            <TicketActions key={t.id} status={t.status} onSet={(s) => setTicketStatus(t.id, s)} />,
             fmtAge(t.created_at),
           ])}
         />
@@ -249,6 +260,31 @@ const linkBtn: React.CSSProperties = {
   padding: 0,
   font: "inherit",
 };
+
+const TICKET_NEXT: Record<string, string[]> = {
+  open: ["in_progress", "closed"],
+  in_progress: ["closed", "open"],
+  closed: ["open"],
+};
+
+function TicketActions({ status, onSet }: { status: string; onSet: (s: string) => void }) {
+  const next = TICKET_NEXT[status] ?? [];
+  if (next.length === 0) return <>—</>;
+  return (
+    <span style={{ display: "flex", gap: 6 }}>
+      {next.map((s) => (
+        <button
+          key={s}
+          onClick={() => onSet(s)}
+          style={{ fontSize: 12, padding: "2px 8px", cursor: "pointer" }}
+          title={`set ${s}`}
+        >
+          → {s}
+        </button>
+      ))}
+    </span>
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

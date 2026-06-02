@@ -28,7 +28,13 @@ def _post_json(url: str, body: dict, timeout: float = 300.0) -> dict:
 
 
 class ActionTechQuery(Action):
-    """Route a technical question to the RAG pipeline (ml-service /answer)."""
+    """Route a technical question to the RAG pipeline.
+
+    Rather than block on /answer, emit a `stream` directive (custom payload). The web
+    client opens an SSE connection to ml-service /answer/stream and renders tokens as
+    they arrive. The turn is still logged in the Rasa tracker (this action ran for the
+    tech_query intent), preserving conversation state.
+    """
 
     def name(self) -> str:
         return "action_tech_query"
@@ -40,29 +46,7 @@ class ActionTechQuery(Action):
         domain: dict[str, Any],
     ) -> list[dict[str, Any]]:
         query = tracker.latest_message.get("text", "")
-
-        try:
-            result = _post_json(
-                f"{ML_SERVICE_URL}/answer",
-                {"query": query, "session_id": tracker.sender_id},
-            )
-        except (urllib.error.URLError, TimeoutError, ValueError):
-            dispatcher.utter_message(
-                text="The knowledge engine is unavailable right now. Please try again shortly."
-            )
-            return []
-
-        answer = result.get("answer", "")
-        citations = result.get("citations", [])
-
-        if result.get("grounded") and citations:
-            refs = ", ".join(
-                f"doc {c['document_id'][:8]}·#{c['ordinal']}" for c in citations
-            )
-            dispatcher.utter_message(text=f"{answer}\n\nSources: {refs}")
-        else:
-            dispatcher.utter_message(text=answer)
-
+        dispatcher.utter_message(json_message={"stream": True, "query": query})
         return []
 
 

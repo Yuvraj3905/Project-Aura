@@ -7,9 +7,14 @@ const RASA_URL = process.env.RASA_URL ?? "http://rasa:5005";
 interface RasaReply {
   recipient_id: string;
   text?: string;
+  custom?: { stream?: boolean; query?: string };
 }
 
-/** Proxy a chat turn to Rasa's REST channel. Rasa owns dialogue state (sender = sessionId). */
+/**
+ * Proxy a chat turn to Rasa's REST channel. Rasa owns dialogue state (sender =
+ * sessionId). Returns plain text replies, plus a `stream` directive if the tech_query
+ * action asked the client to stream the answer over SSE.
+ */
 export async function POST(req: NextRequest) {
   const { sessionId, message } = (await req.json()) as {
     sessionId?: string;
@@ -35,8 +40,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "dialogue manager error" }, { status: 502 });
   }
 
-  const replies = (await res.json()) as RasaReply[];
+  const messages = (await res.json()) as RasaReply[];
+  const streamDirective = messages.find((m) => m.custom?.stream)?.custom;
+
   return NextResponse.json({
-    replies: replies.map((r) => r.text ?? "").filter(Boolean),
+    replies: messages.map((m) => m.text ?? "").filter(Boolean),
+    stream: streamDirective?.stream
+      ? { query: streamDirective.query ?? message }
+      : null,
   });
 }

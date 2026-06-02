@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 interface Doc {
   id: string;
@@ -11,6 +11,8 @@ interface Doc {
 interface Msg {
   role: "user" | "aura";
   text: string;
+  streaming?: boolean;
+  cached?: boolean;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -22,6 +24,7 @@ const STATUS_COLOR: Record<string, string> = {
 export default function Home() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const [docs, setDocs] = useState<Doc[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,6 +57,75 @@ export default function Home() {
     e.target.value = "";
   }
 
+  function toggleDoc(id: string) {
+    setSelected((s) => {
+      const next = new Set(s);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function appendAura(patch: Partial<Msg>) {
+    setMessages((m) => {
+      const copy = [...m];
+      const last = copy[copy.length - 1];
+      if (last?.role === "aura" && last.streaming) {
+        copy[copy.length - 1] = { ...last, ...patch, text: (patch.text ?? last.text) };
+      }
+      return copy;
+    });
+  }
+
+  // Stream a grounded answer token-by-token over SSE.
+  async function streamAnswer(query: string) {
+    setMessages((m) => [...m, { role: "aura", text: "", streaming: true }]);
+    const documentIds = [...selected];
+
+    const res = await fetch("/api/chat/stream", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query, documentIds }),
+    });
+    if (!res.body) {
+      appendAura({ text: "stream unavailable", streaming: false });
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let acc = "";
+
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      // Parse complete SSE frames (separated by a blank line).
+      const frames = buf.split("\n\n");
+      buf = frames.pop() ?? "";
+      for (const frame of frames) {
+        const ev = /^event: (.+)$/m.exec(frame)?.[1];
+        const dataLine = /^data: (.+)$/m.exec(frame)?.[1];
+        if (!dataLine) continue;
+        const payload = JSON.parse(dataLine);
+
+        if (ev === "token") {
+          acc += payload.text;
+          appendAura({ text: acc });
+        } else if (ev === "done") {
+          const cits = (payload.citations ?? []) as { document_id: string; ordinal: number }[];
+          const refs = cits.length
+            ? "\n\nSources: " + cits.map((c) => `doc ${c.document_id.slice(0, 8)}·#${c.ordinal}`).join(", ")
+            : "";
+          appendAura({ text: (payload.answer ?? acc) + refs, streaming: false, cached: payload.cached });
+        } else if (ev === "error") {
+          appendAura({ text: "The knowledge engine is unavailable right now.", streaming: false });
+        }
+      }
+    }
+  }
+
   async function onSend() {
     const text = input.trim();
     if (!text || busy) return;
@@ -66,13 +138,25 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sessionId, message: text }),
       });
-      const data = (await res.json()) as { replies?: string[]; error?: string };
+      const data = (await res.json()) as {
+        replies?: string[];
+        stream?: { query: string } | null;
+        error?: string;
+      };
+
       const replies = data.replies ?? (data.error ? [data.error] : []);
-      setMessages((m) => [...m, ...replies.map((t) => ({ role: "aura" as const, text: t }))]);
+      if (replies.length) {
+        setMessages((m) => [...m, ...replies.map((t) => ({ role: "aura" as const, text: t }))]);
+      }
+      if (data.stream) {
+        await streamAnswer(data.stream.query);
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  const readyDocs = docs.filter((d) => d.status === "ready");
 
   return (
     <main style={{ fontFamily: "system-ui", maxWidth: 760, margin: "0 auto", padding: "2rem" }}>
@@ -87,12 +171,27 @@ export default function Home() {
         <input type="file" accept=".pdf,.docx,.txt,.md" onChange={onUpload} />
         <ul style={{ listStyle: "none", padding: 0 }}>
           {docs.map((d) => (
-            <li key={d.id} style={{ marginTop: 6 }}>
-              <span>{d.filename}</span>{" "}
+            <li key={d.id} style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8 }}>
+              {d.status === "ready" && (
+                <input
+                  type="checkbox"
+                  checked={selected.has(d.id)}
+                  onChange={() => toggleDoc(d.id)}
+                  title="restrict answers to this document"
+                />
+              )}
+              <span>{d.filename}</span>
               <strong style={{ color: STATUS_COLOR[d.status] ?? "#444" }}>{d.status}</strong>
             </li>
           ))}
         </ul>
+        {readyDocs.length > 0 && (
+          <p style={{ color: "#666", fontSize: 13, margin: 0 }}>
+            {selected.size === 0
+              ? "Answering across all ready documents. Tick boxes to restrict."
+              : `Answering across ${selected.size} selected document(s).`}
+          </p>
+        )}
       </section>
 
       <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: "1rem", marginTop: "1rem" }}>
@@ -109,7 +208,10 @@ export default function Home() {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {m.text}
+                {m.text || (m.streaming ? "▍" : "")}
+                {m.cached && (
+                  <em style={{ color: "#1a7f37", fontSize: 11, marginLeft: 6 }}>cached</em>
+                )}
               </span>
             </div>
           ))}
