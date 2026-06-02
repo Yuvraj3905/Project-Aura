@@ -6,6 +6,7 @@ document is marked 'failed' and the error re-raised so the worker can retry / su
 import logging
 from pathlib import Path
 
+from . import cache
 from .config import settings
 from .db import fetch_document, get_conn
 from .embeddings import embed_texts, get_model
@@ -74,7 +75,10 @@ def ingest_document(document_id: str) -> int:
             mark_status(conn, document_id, "ready", summary=summary, n_chunks=len(rows))
             conn.commit()
 
-        log.info("ingested document %s: %d chunks", document_id, len(rows))
+        # A new document can change what any query should return — drop cached answers.
+        dropped = cache.invalidate_answers()
+        log.info("ingested document %s: %d chunks (cache: dropped %d answers)",
+                 document_id, len(rows), dropped)
         return len(rows)
 
     except Exception as exc:  # noqa: BLE001 — mark failed, then re-raise for the worker

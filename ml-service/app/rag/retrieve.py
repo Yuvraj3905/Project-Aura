@@ -6,28 +6,41 @@ from ..db import get_conn
 from ..embeddings import embed_query
 
 
-def retrieve(query: str, top_k: int | None = None) -> list[dict]:
+def retrieve(
+    query: str,
+    top_k: int | None = None,
+    document_ids: list[str] | None = None,
+) -> list[dict]:
     """Return the top-k most similar chunks (cosine) from `ready` documents.
 
-    Each result: {chunk_id, document_id, ordinal, content, score} where score is
-    cosine similarity in [-1, 1] (1 = identical). Embeddings are normalized, so
+    When `document_ids` is given, retrieval is restricted to those documents (the
+    multi-doc filter), so a query can be answered against a chosen subset of the
+    knowledge base. Each result: {chunk_id, document_id, ordinal, content, score}
+    where score is cosine similarity in [-1, 1]. Embeddings are normalized, so
     `1 - (embedding <=> q)` is the cosine similarity.
     """
     k = top_k or settings.retrieval_top_k
     q = np.asarray(embed_query(query), dtype=np.float32)
 
+    where = "d.status = 'ready'"
+    params: list = [q]
+    if document_ids:
+        where += " AND c.document_id = ANY(%s)"
+        params.append(document_ids)
+    params += [q, k]
+
     with get_conn() as conn:
         rows = conn.execute(
-            """
+            f"""
             SELECT c.id, c.document_id, c.ordinal, c.content,
                    1 - (c.embedding <=> %s) AS score
               FROM chunks c
               JOIN documents d ON d.id = c.document_id
-             WHERE d.status = 'ready'
+             WHERE {where}
              ORDER BY c.embedding <=> %s
              LIMIT %s
             """,
-            (q, q, k),
+            params,
         ).fetchall()
 
     return [

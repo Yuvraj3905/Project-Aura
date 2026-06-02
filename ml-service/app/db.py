@@ -37,6 +37,40 @@ def create_ticket(
     return str(row[0])
 
 
+def list_tickets(conn, limit: int = 100) -> list[dict]:
+    """Return recent tickets as dicts (newest first)."""
+    rows = conn.execute(
+        """
+        SELECT id, email, subject, description, session_id, status, created_at
+          FROM support_tickets
+         ORDER BY created_at DESC
+         LIMIT %s
+        """,
+        (limit,),
+    ).fetchall()
+    return [
+        {
+            "id": str(r[0]),
+            "email": r[1],
+            "subject": r[2],
+            "description": r[3],
+            "session_id": r[4],
+            "status": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
+        }
+        for r in rows
+    ]
+
+
+def update_ticket_status(conn, ticket_id: str, status: str) -> bool:
+    """Set a ticket's status. Returns False if the ticket does not exist."""
+    row = conn.execute(
+        "UPDATE support_tickets SET status = %s WHERE id = %s RETURNING id",
+        (status, ticket_id),
+    ).fetchone()
+    return row is not None
+
+
 def fetch_document(conn, document_id: str) -> dict:
     """Return {filename, storage_path, mime_type} for a document, or raise if missing."""
     row = conn.execute(

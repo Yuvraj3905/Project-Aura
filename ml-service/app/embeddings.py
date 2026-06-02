@@ -8,6 +8,7 @@ from functools import lru_cache
 
 from sentence_transformers import SentenceTransformer
 
+from . import cache
 from .config import settings
 
 
@@ -32,5 +33,14 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 def embed_query(text: str) -> list[float]:
-    """Embed a single query string."""
-    return embed_texts([text])[0]
+    """Embed a single query string, using the Redis cache when available.
+
+    Query embeddings repeat across users/sessions far more than chunk embeddings, so
+    only this single-text path is cached; bulk ingestion embeddings are not.
+    """
+    cached = cache.get_embedding(text)
+    if cached is not None:
+        return cached
+    vector = embed_texts([text])[0]
+    cache.set_embedding(text, vector)
+    return vector

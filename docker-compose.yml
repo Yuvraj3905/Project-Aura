@@ -24,6 +24,7 @@ services:
       # Init dir runs *.sql in alphabetical order: extension (00) before schema (01).
       - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
       - ./db/migrations/0001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./db/migrations/0002_ticket_in_progress.sql:/docker-entrypoint-initdb.d/02_ticket_in_progress.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
       interval: 5s
@@ -56,6 +57,20 @@ services:
     entrypoint: ["/bin/sh", "-c", "ollama pull llama3:8b"]
     restart: "no"
 
+  # Cache: query embeddings + grounded answers. Loopback-bound.
+  redis:
+    image: redis:7-alpine
+    container_name: aura-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "127.0.0.1:6390:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   ml-service:
     build: ./ml-service
     container_name: aura-ml-service
@@ -63,6 +78,8 @@ services:
     ports:
       # Host-bound to localhost only; worker/web reach it over the compose network.
       - "127.0.0.1:8100:8100"
+    environment:
+      REDIS_URL: redis://redis:6379/0
     volumes:
       # Shared upload volume: web/worker write here, ml-service reads by path.
       - ./data:/data
@@ -70,6 +87,8 @@ services:
       postgres:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8100/health')\""]

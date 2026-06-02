@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     ollama_host: str = "http://ollama:11434"
     ollama_model: str = "llama3:8b"
 
+    # Redis cache (empty disables caching; service still works).
+    redis_url: str = "redis://redis:6379/0"
+
     # Embeddings.
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
