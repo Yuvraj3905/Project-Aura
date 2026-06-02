@@ -10,6 +10,7 @@ hallucinating. 100% open source / free stack — local inference, no paid LLM AP
 |----------------|-------|------|
 | postgres       | 5440  | pgvector store + pg-boss queue + Rasa tracker store |
 | ollama         | 11435 | local `llama3:8b` — summaries + answers |
+| redis          | 6390  | cache — query embeddings + grounded answers |
 | ml-service     | 8100  | Python/FastAPI — embeddings, ingestion, RAG |
 | worker         | —     | Node — pg-boss consumer |
 | rasa           | 5105  | dialogue manager |
@@ -61,8 +62,12 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    pushes a live update to `ready` (or `failed`) when ingestion completes; no refresh
    needed. Large docs take longer — hierarchical summarization, chunking, and
    embedding run on the local LLM.
-2. **Ask a technical question.** Type into the chat box. Examples that exercise the
-   different paths:
+2. **Ask a technical question.** Type into the chat box. The answer **streams token by
+   token** (SSE) as the local LLM generates it; a `cached` badge appears when the
+   answer came from Redis instead of the model. Tick the checkboxes next to ready
+   documents to **restrict the answer to a chosen subset** of the knowledge base
+   (leave all unticked to search everything). Examples that exercise the different
+   paths:
    - `does the API support OAuth 2.0 with custom claims` — `tech_query` → grounded
      answer + `Sources: doc <id>·#<chunk>` line.
    - `what is the request timeout limit for the billing service` — same path; cites
@@ -90,7 +95,8 @@ Auto-refreshing operations view of the request travel across services:
 - **pg-boss jobs** — queue name, state, retry count, linked `documentId`, durations.
 - **Chat sessions** — distinct Rasa `sender_id` with user/bot turn counts. Click one
   to see the event stream (intents + actions in order).
-- **Tickets** — recent `support_tickets` rows.
+- **Tickets** — recent `support_tickets` rows with **status transition buttons**
+  (`open` ↔ `in_progress` → `closed`); writes go through ml-service.
 - **Filter** by `documentId`, `sessionId`, or email across all panels.
 - **Raw container logs** — link in the header opens **Dozzle** at
   <http://localhost:9999> (live stdout/stderr per service, search, multi-tail).
@@ -123,8 +129,14 @@ curl -X POST http://localhost:3100/api/chat \
   -H 'content-type: application/json' \
   -d '{"sessionId":"sales-acme-2026-05","message":"Does v1 support custom claims?"}'
 
-# Direct RAG answer (skip Rasa — useful for batch / scripted Q&A over ready docs)
+# Direct RAG answer (skip Rasa — useful for batch / scripted Q&A over ready docs).
+# Optional document_ids restricts retrieval to a subset; response includes "cached".
 curl -X POST http://localhost:8100/answer \
+  -H 'content-type: application/json' \
+  -d '{"query":"What TLS versions are accepted?","document_ids":["<id>"]}'
+
+# Streaming answer (Server-Sent Events: token frames then a done frame with citations)
+curl -N -X POST http://localhost:8100/answer/stream \
   -H 'content-type: application/json' \
   -d '{"query":"What TLS versions are accepted?"}'
 
@@ -132,6 +144,11 @@ curl -X POST http://localhost:8100/answer \
 curl -X POST http://localhost:8100/tickets \
   -H 'content-type: application/json' \
   -d '{"email":"ops@acme.com","description":"500 on /v2/token","session_id":"acme"}'
+
+# List tickets / transition status (open -> in_progress -> closed)
+curl http://localhost:8100/tickets
+curl -X PATCH http://localhost:8100/tickets/<ticketId> \
+  -H 'content-type: application/json' -d '{"status":"in_progress"}'
 ```
 
 ### C. Operations
@@ -168,6 +185,7 @@ docker compose down -v && rm -rf data/
 | `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt |
 | `RETRIEVAL_MIN_SCORE` | 0.45 | Cosine floor — below this, the LLM is **not** called (anti-hallucination guard) |
 | `OLLAMA_MODEL` | `llama3:8b` | Local LLM (swap in any Ollama-pulled tag) |
+| `REDIS_URL` | `redis://redis:6379/0` | Cache backend; empty string disables caching (service still works) |
 
 ### Data flow
 
@@ -175,19 +193,25 @@ docker compose down -v && rm -rf data/
   job (pg-boss) → Node `worker` calls ml-service `/ingest` → extract → hierarchical
   summary (Ollama) → token chunks with the summary prepended → embed (bge-small) →
   store → `NOTIFY kb_ready` → WebSocket pushes status to the UI.
-- **Chat:** `/api/chat` → Rasa. `tech_query` → `action_tech_query` → ml-service
-  `/answer` (vector search + grounded prompt, refuses when retrieval is weak).
-  `open_ticket` → `ticket_form` collects email + description → ml-service `/tickets`.
+- **Chat:** `/api/chat` → Rasa. `tech_query` → `action_tech_query` returns a stream
+  directive → web opens SSE to `/api/chat/stream` → ml-service `/answer/stream`
+  (vector search + grounded prompt, streamed token by token, refuses when retrieval is
+  weak). `open_ticket` → `ticket_form` collects email + description → ml-service
+  `/tickets`.
+- **Cache:** query embeddings (24h) and grounded answers (1h) are cached in Redis;
+  the answer cache is flushed whenever a new document becomes ready.
 
 ## ml-service
 
 Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-dim,
 L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
-`POST /ingest`, `POST /answer`, `POST /tickets`.
+`POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `POST /tickets`,
+`GET /tickets`, `PATCH /tickets/{id}`.
 
-`/ingest` accepts only a `document_id`; the file path is resolved from
-`documents.storage_path` under the upload root (no caller-supplied paths). The host
-port is bound to `127.0.0.1`.
+`/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
+retrieval to a subset) and are Redis-cached. `/ingest` accepts only a `document_id`;
+the file path is resolved from `documents.storage_path` under the upload root (no
+caller-supplied paths). The host port is bound to `127.0.0.1`.
 
 Run the tests inside the image:
 
