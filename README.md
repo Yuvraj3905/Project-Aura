@@ -17,6 +17,65 @@ hallucinating. 100% open source / free stack — local inference, no paid LLM AP
 | rasa-actions   | 5155  | custom action server |
 | web            | 3100  | Next.js — UI + API + WebSocket |
 
+## Architecture
+
+```
+                     ┌─────────────────────────┐
+ browser ──────────▶ │  web (Next.js)  :3100   │
+ upload / chat / ws  │  UI · API · WebSocket   │
+                     └───┬─────────┬───────┬───┘
+                         │         │       │
+            enqueue job  │   REST  │       │ SSE stream
+                         ▼         ▼       ▼
+            ┌────────────────┐ ┌──────┐ ┌──────────────────┐
+            │ postgres :5440 │ │ rasa │ │ ml-service :8100 │
+            │  pgvector      │ │:5105 │ │  embed · ingest  │
+            │  pgboss.*      │ └──┬───┘ │  RAG · tickets   │
+            │  rasa events   │    ▼     └───┬─────────┬────┘
+            └──────┬─────────┘ ┌─────────┐  │         │
+      LISTEN/NOTIFY│           │ actions │  ▼         ▼
+            ┌──────┴──────┐    │  :5155  │ ┌───────┐ ┌────────┐
+            │ worker (Node│    └─────────┘ │ redis │ │ ollama │
+            │ pg-boss)    │───── /ingest ─▶│ :6390 │ │ :11435 │
+            └─────────────┘                └───────┘ └────────┘
+```
+
+## Repository layout
+
+```
+web/            Next.js App Router + custom server (ws) + Node pg-boss worker
+  app/          UI (chat + upload), /dashboard, /api routes
+  worker/       pg-boss consumer entrypoint
+  lib/          db pool, queue, NOTIFY helpers
+ml-service/     Python / FastAPI
+  app/          config, db, embeddings, llm (Ollama), cache (Redis), ingest
+  app/pipeline/ extract, chunk, summarize, store
+  app/rag/      retrieve, answer (+ streaming)
+  tests/        pytest suite
+rasa/           dialogue manager project
+  data/         nlu, rules, stories
+  actions/      custom action server code
+db/             init.sql + migrations (mounted into postgres initdb)
+docker-compose.yml
+docs/           local-only docs — git-ignored, never pushed
+```
+
+## Concepts guide
+
+A self-contained deep-dive into every concept in the system — Contextual RAG, embeddings
+and the bge-small similarity baseline, pgvector/HNSW, chunking, hierarchical map-reduce
+summarization, the two-layer anti-hallucination guardrail, pg-boss and the Node↔Python
+split, NOTIFY/LISTEN→WebSocket, Rasa (DIET pipeline, rules vs stories, form FSM, tracker
+store), SSE streaming with the stream-directive pattern, Redis cache layers and
+invalidation, the security model, schema and API reference — lives at
+`docs/aura-concepts.html`. Open it directly in a browser:
+
+```bash
+xdg-open docs/aura-concepts.html      # linux
+```
+
+(`docs/` is intentionally git-ignored; the guide stays local.)
+
 ## Quickstart (infra)
 
 ```bash
