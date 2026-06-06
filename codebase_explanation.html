@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Aura - Codebase Explanation</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --text-color: #f8fafc;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --accent-color: #38bdf8;
+            --accent-hover: #0284c7;
+            --sidebar-bg: rgba(15, 23, 42, 0.9);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            min-height: 100vh;
+            line-height: 1.6;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        /* Glassmorphism sidebar */
+        .sidebar {
+            width: 300px;
+            background: var(--sidebar-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-right: 1px solid var(--border-color);
+            padding: 2rem 0;
+            position: fixed;
+            height: 100vh;
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar h2 {
+            padding: 0 2rem 1rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 1rem;
+        }
+
+        .nav-links {
+            list-style: none;
+        }
+
+        .nav-links li {
+            margin: 0.25rem 0;
+        }
+
+        .nav-links a {
+            display: block;
+            padding: 0.75rem 2rem;
+            color: #cbd5e1;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .nav-links a:hover, .nav-links a.active {
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent-color);
+            border-left: 4px solid var(--accent-color);
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 300px;
+            padding: 3rem 4rem;
+            flex-grow: 1;
+            max-width: 1200px;
+        }
+
+        header {
+            margin-bottom: 3rem;
+        }
+
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #38bdf8, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 2rem;
+            margin: 2.5rem 0 1rem;
+            color: #e2e8f0;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.5rem;
+            margin: 1.5rem 0 0.5rem;
+            color: #38bdf8;
+        }
+
+        p {
+            margin-bottom: 1rem;
+            color: #94a3b8;
+        }
+
+        /* Glassmorphism Cards */
+        .card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.1);
+            border-color: rgba(56, 189, 248, 0.3);
+        }
+
+        .architecture-img {
+            width: 100%;
+            background: #000;
+            padding: 1.5rem;
+            border-radius: 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            color: #10b981;
+            overflow-x: auto;
+            border: 1px solid #333;
+        }
+
+        code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+            color: #fca5a5;
+        }
+
+        pre {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            margin-bottom: 1rem;
+        }
+
+        pre code {
+            background: transparent;
+            padding: 0;
+            color: #e2e8f0;
+        }
+
+        /* Directory structure */
+        .dir-tree {
+            font-family: monospace;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .dir-item {
+            display: flex;
+            margin-bottom: 0.5rem;
+        }
+
+        .dir-name {
+            color: #38bdf8;
+            font-weight: bold;
+            width: 200px;
+        }
+
+        .dir-desc {
+            color: #94a3b8;
+            flex: 1;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: rgba(56, 189, 248, 0.2);
+            color: #38bdf8;
+            margin-left: 0.5rem;
+        }
+
+        section {
+            scroll-margin-top: 2rem;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.6s ease-out forwards;
+        }
+    </style>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <aside class="sidebar">
+        <h2>Project Aura</h2>
+        <ul class="nav-links">
+            <li><a href="#overview">Overview & Architecture</a></li>
+            <li><a href="#web">Web Frontend (Next.js)</a></li>
+            <li><a href="#ml-service">ML Service (Python/FastAPI)</a></li>
+            <li><a href="#rasa">Dialogue Manager (Rasa)</a></li>
+            <li><a href="#db">Database & Queue</a></li>
+            <li><a href="#infrastructure">Infrastructure (Docker)</a></li>
+            <li><a href="#data-flow">Data Flows</a></li>
+        </ul>
+    </aside>
+
+    <main class="main-content">
+        <header class="fade-in">
+            <h1>Project Aura Codebase</h1>
+            <p>An interactive, detailed guide to the autonomous, stateful "Sales Engineer" agent codebase.</p>
+        </header>
+
+        <section id="overview" class="fade-in">
+            <h2>Overview & Architecture</h2>
+            <div class="card">
+                <p>Project Aura is a 100% open-source, locally run "Sales Engineer" agent. It ingests large internal engineering documents, tracks multi-day client conversations, and answers technical questions without hallucinating. It uses local inference and no paid LLM APIs.</p>
+                <div class="architecture-img">
+                     ┌─────────────────────────┐
+ browser ──────────▶ │  web (Next.js)  :3100   │
+ upload / chat / ws  │  UI · API · WebSocket   │
+                     └───┬─────────┬───────┬───┘
+                         │         │       │
+            enqueue job  │   REST  │       │ SSE stream
+                         ▼         ▼       ▼
+            ┌────────────────┐ ┌──────┐ ┌──────────────────┐
+            │ postgres :5440 │ │ rasa │ │ ml-service :8100 │
+            │  pgvector      │ │:5105 │ │  embed · ingest  │
+            │  pgboss.*      │ └──┬───┘ │  RAG · tickets   │
+            │  rasa events   │    ▼     └───┬─────────┬────┘
+            └──────┬─────────┘ ┌─────────┐  │         │
+      LISTEN/NOTIFY│           │ actions │  ▼         ▼
+            ┌──────┴──────┐    │  :5155  │ ┌───────┐ ┌────────┐
+            │ worker (Node│    └─────────┘ │ redis │ │ ollama │
+            │ pg-boss)    │───── /ingest ─▶│ :6390 │ │ :11435 │
+            └─────────────┘                └───────┘ └────────┘
+                </div>
+            </div>
+        </section>
+
+        <section id="web" class="fade-in">
+            <h2>1. Web Frontend & API <code>/web</code></h2>
+            <div class="card">
+                <h3>Next.js App Router (UI + API + WebSocket)</h3>
+                <p>The <code>web/</code> directory contains the Next.js application, which acts as the main user interface, API gateway, and handles background job enqueuing.</p>
+                <div class="dir-tree">
+                    <div class="dir-item">
+                        <span class="dir-name">app/</span>
+                        <span class="dir-desc">Contains the React UI components (chat interface, document upload, dashboard) and Next.js API routes (<code>/api/upload</code>, <code>/api/chat</code>).</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">worker/</span>
+                        <span class="dir-desc">Node.js entrypoint for the pg-boss consumer. Processes background jobs enqueued by the API.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">lib/</span>
+                        <span class="dir-desc">Shared utilities: database connection pools, queue management, and PostgreSQL NOTIFY/LISTEN helpers for WebSockets.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">server.ts</span>
+                        <span class="dir-desc">Custom Next.js server to support WebSocket connections for real-time document processing updates.</span>
+                    </div>
+                </div>
+                <h3>Key Responsibilities:</h3>
+                <ul>
+                    <li><strong>Uploads:</strong> Receives files, saves them, and enqueues a <code>process_document</code> job using <code>pg-boss</code>.</li>
+                    <li><strong>Chat Interface:</strong> Communicates with Rasa (dialogue) and ml-service (streaming responses via SSE).</li>
+                    <li><strong>Dashboard:</strong> Operations view for monitoring jobs, documents, sessions, and tickets.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="ml-service" class="fade-in">
+            <h2>2. ML Service <code>/ml-service</code></h2>
+            <div class="card">
+                <h3>Python / FastAPI (Embeddings, RAG, Ingestion)</h3>
+                <p>The <code>ml-service/</code> handles all the heavy machine learning tasks: document chunking, summarization using local Ollama models, embedding generation, and Retrieval-Augmented Generation (RAG).</p>
+                <div class="dir-tree">
+                    <div class="dir-item">
+                        <span class="dir-name">app/main.py</span>
+                        <span class="dir-desc">FastAPI application entrypoint defining endpoints (<code>/embed</code>, <code>/ingest</code>, <code>/answer</code>).</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">app/embeddings.py</span>
+                        <span class="dir-desc">Manages the Sentence Transformers model (<code>bge-small-en-v1.5</code>, 384-dim) for text vectorization.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">app/llm.py & cache.py</span>
+                        <span class="dir-desc">Interface to Ollama (llama3:8b) for text generation and Redis caching logic.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">app/pipeline/</span>
+                        <span class="dir-desc">Extraction, hierarchical chunking, summarization, and storage into pgvector.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">app/rag/</span>
+                        <span class="dir-desc">Retrieval logic (cosine similarity search) and streaming response generation (Server-Sent Events).</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="rasa" class="fade-in">
+            <h2>3. Dialogue Manager <code>/rasa</code></h2>
+            <div class="card">
+                <h3>Rasa (NLU + Core + Custom Actions)</h3>
+                <p>The <code>rasa/</code> directory manages the conversation flow, intent recognition, and multi-turn statefulness.</p>
+                <div class="dir-tree">
+                    <div class="dir-item">
+                        <span class="dir-name">data/</span>
+                        <span class="dir-desc">Contains NLU training data (intents), conversation rules, and stories.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">actions/</span>
+                        <span class="dir-desc">Custom Python action server (runs on port 5155). Executes business logic, forms (e.g., ticket collection), and decides when to trigger the ML service.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">domain.yml</span>
+                        <span class="dir-desc">Defines the bot's universe: intents, entities, slots (memory), responses, and forms.</span>
+                    </div>
+                </div>
+                <p><strong>Persistence:</strong> Rasa sessions are persisted in Postgres (tracker store), allowing users to resume conversations even days later.</p>
+            </div>
+        </section>
+
+        <section id="db" class="fade-in">
+            <h2>4. Database & Queue <code>/db</code></h2>
+            <div class="card">
+                <h3>PostgreSQL + pgvector + pg-boss</h3>
+                <p>Postgres acts as the central nervous system for state and vector storage.</p>
+                <div class="dir-tree">
+                    <div class="dir-item">
+                        <span class="dir-name">db/init.sql</span>
+                        <span class="dir-desc">Bootstraps the database and extensions upon initial Docker container startup.</span>
+                    </div>
+                    <div class="dir-item">
+                        <span class="dir-name">db/migrations/</span>
+                        <span class="dir-desc">SQL scripts to create tables: <code>documents</code>, vector chunks, <code>support_tickets</code>, and Rasa event tables.</span>
+                    </div>
+                </div>
+                <h3>Key Components:</h3>
+                <ul>
+                    <li><strong>pgvector:</strong> Used to store and perform cosine similarity search on document embeddings.</li>
+                    <li><strong>pg-boss:</strong> A Postgres-based job queue for handling asynchronous document ingestion without needing a separate message broker like RabbitMQ.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section id="data-flow" class="fade-in">
+            <h2>5. Key Data Flows</h2>
+            
+            <div class="card">
+                <h3>A. Document Ingestion Flow</h3>
+                <ol>
+                    <li>User uploads file via UI → <code>web/app/api/upload/route.ts</code></li>
+                    <li>File is saved, and a <code>process_document</code> job is added to Postgres via pg-boss.</li>
+                    <li>Node <code>worker</code> picks up the job and sends a REST call to <code>ml-service /ingest</code>.</li>
+                    <li><code>ml-service</code> extracts text, runs hierarchical summarization via Ollama, chunks it, generates embeddings, and saves to pgvector.</li>
+                    <li>Postgres fires a <code>NOTIFY kb_ready</code> event.</li>
+                    <li>Next.js custom server catches NOTIFY and pushes via WebSocket to update the UI instantly.</li>
+                </ol>
+            </div>
+
+            <div class="card">
+                <h3>B. Chat & RAG Flow</h3>
+                <ol>
+                    <li>User sends a message → <code>web/api/chat</code> forwards to Rasa.</li>
+                    <li>Rasa predicts intent (e.g., <code>tech_query</code>).</li>
+                    <li>Rasa Custom Action returns a <em>stream directive</em> to the web UI.</li>
+                    <li>Web UI opens a Server-Sent Events (SSE) connection to <code>/api/chat/stream</code> → <code>ml-service /answer/stream</code>.</li>
+                    <li><code>ml-service</code> does vector search (pgvector), finds relevant chunks, and prompts Ollama.</li>
+                    <li>Response streams token-by-token back to the UI. If similarity is too low (< 0.45), guardrail blocks hallucination.</li>
+                </ol>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        // Smooth scrolling for navigation links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                
+                // Update active state
+                document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+                this.classList.add('active');
+
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Intersection Observer to highlight active section in sidebar
+        const sections = document.querySelectorAll('section');
+        const navLinks = document.querySelectorAll('.nav-links a');
+
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.5
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.getAttribute('id');
+                    navLinks.forEach(link => {
+                        link.classList.remove('active');
+                        if (link.getAttribute('href') === `#${id}`) {
+                            link.classList.add('active');
+                        }
+                    });
+                }
+            });
+        }, observerOptions);
+
+        sections.forEach(section => observer.observe(section));
+    </script>
+</body>
+</html>
