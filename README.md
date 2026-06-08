@@ -156,6 +156,8 @@ Auto-refreshing operations view of the request travel across services:
   to see the event stream (intents + actions in order).
 - **Tickets** — recent `support_tickets` rows with **status transition buttons**
   (`open` ↔ `in_progress` → `closed`); writes go through ml-service.
+- **LLM usage & cost vs ChatGPT** — calls, cache hit rate, tokens, avg latency, and the
+  estimated OpenAI bill for the same tokens (vs Aura's $0 local inference).
 - **Filter** by `documentId`, `sessionId`, or email across all panels.
 - **Raw container logs** — link in the header opens **Dozzle** at
   <http://localhost:9999> (live stdout/stderr per service, search, multi-tail).
@@ -235,16 +237,46 @@ docker compose down
 docker compose down -v && rm -rf data/
 ```
 
+### Speed
+
+Answer latency on CPU is dominated by the local model. Biggest levers, in order:
+
+1. **Use a smaller model** — the single biggest win. Pull a 3B model and point Aura at it:
+   ```bash
+   docker compose exec ollama ollama pull llama3.2:3b
+   # set OLLAMA_MODEL=llama3.2:3b in .env, then: docker compose up -d ml-service
+   ```
+   3B answers ~2× faster than the default 8B at a modest quality cost.
+2. **Keep the model warm** — `OLLAMA_KEEP_ALIVE=30m` (default) keeps it resident in RAM, so
+   only the *first* request pays the model-load cost.
+3. **Cap generation / context** — `OLLAMA_NUM_PREDICT` (max output tokens) and
+   `OLLAMA_NUM_CTX` (context window) bound the work per call.
+4. **Fewer/smaller chunks** — lower `RETRIEVAL_TOP_K` / `CHUNK_TOKENS` to shrink the prompt.
+5. **Cache** — repeat questions return from Redis in ~30 ms regardless of model (see below).
+6. **Streaming** — the UI shows tokens as they generate, so perceived latency ≈ time-to-first-token, not total.
+
+### LLM usage & cost analytics
+
+The dashboard's **LLM usage & cost vs ChatGPT** panel reports, from the `llm_usage` table:
+calls, cache hits + hit rate, prompt/completion tokens, average latency — and estimates
+what the same tokens would have cost on `gpt-4o` / `gpt-4o-mini` / `gpt-3.5-turbo`
+(prices configurable in `.env`). Aura's actual spend is **$0** (local inference); the panel
+also shows what the answer-cache saved by not re-generating. Raw aggregates: `GET /usage`.
+
 ### Tuning knobs (in `.env`)
 
 | Var | Default | Effect |
 |-----|---------|--------|
 | `CHUNK_TOKENS` | 512 | Chunk size before the summary prefix |
 | `CHUNK_OVERLAP` | 64 | Tokens shared between adjacent chunks |
-| `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt |
+| `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt (fewer = faster) |
 | `RETRIEVAL_MIN_SCORE` | 0.45 | Cosine floor — below this, the LLM is **not** called (anti-hallucination guard) |
-| `OLLAMA_MODEL` | `llama3:8b` | Local LLM (swap in any Ollama-pulled tag) |
+| `OLLAMA_MODEL` | `llama3:8b` | Local LLM; use `llama3.2:3b` for speed |
+| `OLLAMA_NUM_CTX` | 4096 | Context window (must hold prompt + chunks; bigger = slower) |
+| `OLLAMA_NUM_PREDICT` | 512 | Max generated tokens per answer |
+| `OLLAMA_KEEP_ALIVE` | 30m | How long the model stays resident in RAM |
 | `REDIS_URL` | `redis://redis:6379/0` | Cache backend; empty string disables caching (service still works) |
+| `OPENAI_PRICE_GPT_4O` etc. | `2.50,10.00` | ChatGPT prices ($/1M in,out) for the cost-comparison panel |
 
 ### Data flow
 
@@ -265,7 +297,7 @@ docker compose down -v && rm -rf data/
 Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-dim,
 L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
 `POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `POST /tickets`,
-`GET /tickets`, `PATCH /tickets/{id}`.
+`GET /tickets`, `PATCH /tickets/{id}`, `GET /usage`.
 
 `/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
 retrieval to a subset) and are Redis-cached. `/ingest` accepts only a `document_id`;

@@ -67,6 +67,18 @@ interface EventRow {
   timestamp: number;
   data: string;
 }
+interface UsageStats {
+  total_requests: number; llm_calls: number; cache_hits: number; cache_hit_rate: number;
+  prompt_tokens: number; completion_tokens: number; total_tokens: number;
+  saved_prompt_tokens: number; saved_completion_tokens: number; avg_latency_ms: number;
+}
+interface CostRow {
+  model: string; input_per_million: number; output_per_million: number;
+  est_cost_usd: number; saved_by_cache_usd: number;
+}
+interface Usage {
+  stats: UsageStats; comparison: CostRow[]; local_cost_usd: number;
+}
 
 function fmtAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -103,18 +115,21 @@ export default function Dashboard() {
   const [filter, setFilter] = useState("");
   const [selectedDoc, setSelectedDoc] = useState<DocTrail | null>(null);
   const [selectedSession, setSelectedSession] = useState<{ id: string; events: EventRow[] } | null>(null);
+  const [usage, setUsage] = useState<Usage | null>(null);
 
   const refresh = useCallback(async () => {
-    const [d, j, t, c] = await Promise.all([
+    const [d, j, t, c, u] = await Promise.all([
       fetch("/api/dashboard/documents").then((r) => r.json()),
       fetch("/api/dashboard/jobs").then((r) => r.json()),
       fetch("/api/dashboard/tickets").then((r) => r.json()),
       fetch("/api/dashboard/chats").then((r) => r.json()),
+      fetch("/api/dashboard/usage").then((r) => r.json()).catch(() => null),
     ]);
     setDocs(d.documents ?? []);
     setJobs(j.jobs ?? []);
     setTickets(t.tickets ?? []);
     setSessions(c.sessions ?? []);
+    setUsage(u && !u.error ? u : null);
   }, []);
 
   useEffect(() => {
@@ -179,6 +194,8 @@ export default function Dashboard() {
         onChange={(e) => setFilter(e.target.value)}
         style={{ width: "100%", padding: 8, margin: "12px 0", border: "1px solid #ccc", borderRadius: 6 }}
       />
+
+      {usage && <UsagePanel usage={usage} />}
 
       <Section title={`Documents (${filteredDocs.length})`}>
         <Table
@@ -283,6 +300,68 @@ function TicketActions({ status, onSet }: { status: string; onSet: (s: string) =
         </button>
       ))}
     </span>
+  );
+}
+
+// Compact thousands formatting for token counts (12345 → "12.3k").
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "k";
+  return String(n);
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div style={{ flex: "1 1 130px", padding: "10px 14px", background: "#fafafa", borderRadius: 8, border: "1px solid #eee" }}>
+      <div style={{ fontSize: 12, color: "#666" }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700 }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "#888" }}>{sub}</div>}
+    </div>
+  );
+}
+
+/**
+ * LLM usage + cost-vs-ChatGPT panel. Shows how much the local model was used (calls,
+ * tokens, latency, cache hit rate) and what the same token volume would have cost on
+ * paid OpenAI models — vs Aura's actual $0 (local inference).
+ */
+function UsagePanel({ usage }: { usage: Usage }) {
+  const s = usage.stats;
+  return (
+    <Section title="LLM usage & cost vs ChatGPT">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <Stat label="LLM calls" value={String(s.llm_calls)} sub={`${s.total_requests} requests total`} />
+        <Stat label="Cache hits" value={String(s.cache_hits)} sub={`${Math.round(s.cache_hit_rate * 100)}% hit rate`} />
+        <Stat label="Tokens (in / out)" value={`${fmtNum(s.prompt_tokens)} / ${fmtNum(s.completion_tokens)}`} sub={`${fmtNum(s.total_tokens)} total`} />
+        <Stat label="Avg latency" value={`${(s.avg_latency_ms / 1000).toFixed(1)}s`} sub="per generated answer" />
+        <Stat label="Aura cost" value="$0.00" sub="local inference" />
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <thead>
+          <tr>
+            {["if run on…", "input $/1M", "output $/1M", "est. cost so far", "saved by cache"].map((h) => (
+              <th key={h} style={{ textAlign: "left", padding: "4px 8px", color: "#666" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {usage.comparison.map((c) => (
+            <tr key={c.model} style={{ borderTop: "1px solid #eee" }}>
+              <td style={{ padding: "6px 8px", fontWeight: 600 }}>{c.model}</td>
+              <td style={{ padding: "6px 8px" }}>${c.input_per_million.toFixed(2)}</td>
+              <td style={{ padding: "6px 8px" }}>${c.output_per_million.toFixed(2)}</td>
+              <td style={{ padding: "6px 8px", color: "#b00020" }}>${c.est_cost_usd.toFixed(4)}</td>
+              <td style={{ padding: "6px 8px", color: "#1a7f37" }}>${c.saved_by_cache_usd.toFixed(4)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0" }}>
+        Estimated bill for the same tokens on OpenAI (prices configurable in <code>.env</code>).
+        Aura runs the model locally, so actual spend is $0; the green column is what the
+        Redis answer-cache saved by not regenerating.
+      </p>
+    </Section>
   );
 }
 

@@ -10,9 +10,9 @@ Two entry points share the same retrieval + guardrail + prompt:
 """
 from typing import Iterator
 
-from .. import cache
+from .. import cache, usage
 from ..config import settings
-from ..llm import generate, generate_stream
+from ..llm import generate_full, generate_stream
 from .retrieve import retrieve
 
 SYSTEM_PROMPT = (
@@ -52,6 +52,22 @@ def _citations(chunks: list[dict]) -> list[dict]:
     ]
 
 
+def _record_cache_hit(cached: dict) -> None:
+    """Log a usage row for an answer served from cache (no model call).
+
+    Carries the original generation's token counts so the dashboard can show how much
+    the cache saved. Guardrail/no-answer cached entries have no token counts → 0.
+    """
+    usage.record_usage(
+        kind="answer",
+        model=settings.ollama_model,
+        prompt_tokens=cached.get("prompt_tokens", 0),
+        completion_tokens=cached.get("completion_tokens", 0),
+        duration_ms=0,
+        cached=True,
+    )
+
+
 def answer_query(
     query: str,
     top_k: int | None = None,
@@ -62,14 +78,21 @@ def answer_query(
 
     cached = cache.get_answer(query, k, document_ids)
     if cached is not None:
+        _record_cache_hit(cached)
         return {**cached, "cached": True}
 
     chunks = retrieve(query, k, document_ids)
     if not is_grounded(chunks, settings.retrieval_min_score):
-        result = {"answer": NO_ANSWER, "grounded": False, "citations": []}
+        # Guardrail: off-knowledge-base query. No model call, no tokens.
+        result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
+                  "prompt_tokens": 0, "completion_tokens": 0}
     else:
-        answer = generate(_build_prompt(query, chunks), system=SYSTEM_PROMPT)
-        result = {"answer": answer, "grounded": True, "citations": _citations(chunks)}
+        gen = generate_full(_build_prompt(query, chunks), system=SYSTEM_PROMPT, kind="answer")
+        result = {
+            "answer": gen["text"], "grounded": True, "citations": _citations(chunks),
+            # Stored so a future cache hit can report the tokens it saved.
+            "prompt_tokens": gen["prompt_tokens"], "completion_tokens": gen["completion_tokens"],
+        }
 
     cache.set_answer(query, k, document_ids, result)
     return {**result, "cached": False}
@@ -90,23 +113,35 @@ def answer_stream(
 
     cached = cache.get_answer(query, k, document_ids)
     if cached is not None:
+        _record_cache_hit(cached)
         yield ("token", cached["answer"])
         yield ("done", {**cached, "cached": True})
         return
 
     chunks = retrieve(query, k, document_ids)
     if not is_grounded(chunks, settings.retrieval_min_score):
-        result = {"answer": NO_ANSWER, "grounded": False, "citations": []}
+        result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
+                  "prompt_tokens": 0, "completion_tokens": 0}
         cache.set_answer(query, k, document_ids, result)
         yield ("token", NO_ANSWER)
         yield ("done", {**result, "cached": False})
         return
 
+    # Token counts arrive with the final stream frame; capture them via on_usage so the
+    # cached entry records what a future hit will have saved.
+    tokens: dict = {}
     parts: list[str] = []
-    for tok in generate_stream(_build_prompt(query, chunks), system=SYSTEM_PROMPT):
+    for tok in generate_stream(
+        _build_prompt(query, chunks), system=SYSTEM_PROMPT, kind="answer",
+        on_usage=lambda meta: tokens.update(meta),
+    ):
         parts.append(tok)
         yield ("token", tok)
 
-    result = {"answer": "".join(parts), "grounded": True, "citations": _citations(chunks)}
+    result = {
+        "answer": "".join(parts), "grounded": True, "citations": _citations(chunks),
+        "prompt_tokens": tokens.get("prompt_tokens", 0),
+        "completion_tokens": tokens.get("completion_tokens", 0),
+    }
     cache.set_answer(query, k, document_ids, result)
     yield ("done", {**result, "cached": False})

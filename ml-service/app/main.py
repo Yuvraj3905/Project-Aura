@@ -14,6 +14,7 @@ from .db import create_ticket, get_conn, list_tickets, update_ticket_status
 from .embeddings import embed_texts
 from .ingest import ingest_document
 from .rag.answer import answer_query, answer_stream
+from .usage import get_usage_stats
 
 app = FastAPI(title="Aura ml-service", version="0.2.0")
 
@@ -162,3 +163,13 @@ def patch_ticket(ticket_id: str, req: TicketStatusRequest) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="ticket not found")
     return {"ticket_id": ticket_id, "status": req.status}
+
+
+@app.get("/usage")
+def usage_stats() -> dict:
+    """LLM usage aggregates (calls, tokens, latency, cache hit rate).
+
+    The dashboard layers OpenAI/ChatGPT pricing on top of these raw counts to estimate
+    what the same token volume would have cost on a paid API.
+    """
+    return get_usage_stats()
