@@ -25,6 +25,7 @@ services:
       - ./db/init.sql:/docker-entrypoint-initdb.d/00_init.sql:ro
       - ./db/migrations/0001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./db/migrations/0002_ticket_in_progress.sql:/docker-entrypoint-initdb.d/02_ticket_in_progress.sql:ro
+      - ./db/migrations/0003_llm_usage.sql:/docker-entrypoint-initdb.d/03_llm_usage.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
       interval: 5s
@@ -37,6 +38,11 @@ services:
     restart: unless-stopped
     ports:
       - "11435:11434"
+    environment:
+      # Keep the model resident in RAM for 30m after the last request so we don't pay
+      # the multi-second model-load cost on every call (ml-service also sends keep_alive
+      # per request; this is the server-side default for any other caller).
+      OLLAMA_KEEP_ALIVE: "30m"
     volumes:
       - aura_ollama:/root/.ollama
     healthcheck:
@@ -80,6 +86,13 @@ services:
       - "127.0.0.1:8100:8100"
     environment:
       REDIS_URL: redis://redis:6379/0
+      # Interpolated from ./.env if present, else the defaults below (= config.py defaults).
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3:8b}
+      OLLAMA_NUM_CTX: ${OLLAMA_NUM_CTX:-4096}
+      OLLAMA_NUM_PREDICT: ${OLLAMA_NUM_PREDICT:-512}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
+      RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.45}
     volumes:
       # Shared upload volume: web/worker write here, ml-service reads by path.
       - ./data:/data
@@ -108,6 +121,11 @@ services:
       NODE_ENV: production
       PORT: "3100"
       DASHBOARD_TOKEN: ${DASHBOARD_TOKEN:-}
+      # ChatGPT/OpenAI prices (USD per 1M tokens, "input,output") for the cost-comparison
+      # panel. Interpolated from ./.env; defaults below are illustrative published prices.
+      OPENAI_PRICE_GPT_4O: ${OPENAI_PRICE_GPT_4O:-2.50,10.00}
+      OPENAI_PRICE_GPT_4O_MINI: ${OPENAI_PRICE_GPT_4O_MINI:-0.15,0.60}
+      OPENAI_PRICE_GPT_35_TURBO: ${OPENAI_PRICE_GPT_35_TURBO:-0.50,1.50}
     ports:
       # Bound to localhost — the dashboard exposes PII (chat, ticket emails, doc
       # filenames + summaries). LAN access requires DASHBOARD_TOKEN + a tunnel.

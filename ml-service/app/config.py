@@ -17,7 +17,22 @@ class Settings(BaseSettings):
 
     # Ollama (local LLM).
     ollama_host: str = "http://ollama:11434"
+    # Model tag. Smaller models answer much faster on CPU — e.g. "llama3.2:3b" or
+    # "qwen2.5:3b" roughly halve token latency vs the default 8B at a small quality cost.
     ollama_model: str = "llama3:8b"
+
+    # --- Inference speed/quality knobs (forwarded to Ollama) ---
+    # num_ctx: context window in tokens. Must be large enough to hold the system prompt
+    # + top_k chunks (~512 tokens each) + query, or the prompt is silently truncated and
+    # answers degrade. Bigger ctx = slower prompt evaluation, so keep it just big enough.
+    ollama_num_ctx: int = 4096
+    # num_predict: hard cap on generated tokens. Answers are meant to be concise; capping
+    # prevents a verbose model from running for minutes on CPU.
+    ollama_num_predict: int = 512
+    # keep_alive: how long Ollama keeps the model resident in RAM after a request. The
+    # first call pays a multi-second model-load cost; keeping it warm makes every
+    # subsequent call within the window start generating immediately.
+    ollama_keep_alive: str = "30m"
 
     # Redis cache (empty disables caching; service still works).
     redis_url: str = "redis://redis:6379/0"
