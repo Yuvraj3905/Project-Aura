@@ -14,7 +14,12 @@ from .config import settings
 
 @lru_cache(maxsize=1)
 def get_model() -> SentenceTransformer:
-    """Load (and cache) the embedding model."""
+    """Load the embedding model once per process (lru_cache = lazy singleton).
+
+    Loading is expensive (hundreds of MB), so it happens on first use and is reused for
+    every subsequent embed call. The model is baked into the Docker image, so this is a
+    local disk load, not a network download.
+    """
     return SentenceTransformer(settings.embedding_model)
 
 

@@ -1,4 +1,8 @@
-"""Vector retrieval over ready documents."""
+"""Vector retrieval over ready documents.
+
+The "retrieve" half of RAG: embed the user's query, then ask pgvector for the chunks
+whose stored embeddings are nearest (cosine) — the evidence the LLM will answer from.
+"""
 import numpy as np
 
 from ..config import settings
@@ -20,12 +24,14 @@ def retrieve(
     `1 - (embedding <=> q)` is the cosine similarity.
     """
     k = top_k or settings.retrieval_top_k
-    q = np.asarray(embed_query(query), dtype=np.float32)
+    q = np.asarray(embed_query(query), dtype=np.float32)  # cached via embed_query
 
-    where = "d.status = 'ready'"
+    # Build WHERE incrementally. The query vector `q` appears twice in the SQL (SELECT
+    # score + ORDER BY distance), so params are ordered: [q (score), (ids?), q (order), k].
+    where = "d.status = 'ready'"          # never retrieve from a doc still ingesting/failed
     params: list = [q]
     if document_ids:
-        where += " AND c.document_id = ANY(%s)"
+        where += " AND c.document_id = ANY(%s)"   # multi-doc filter
         params.append(document_ids)
     params += [q, k]
 

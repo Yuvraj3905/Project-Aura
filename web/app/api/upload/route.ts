@@ -41,16 +41,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Server-generated UUID is the document id AND the storage filename — the client's
+  // filename is kept only for display, never used as a path (path-traversal safety).
   const id = randomUUID();
   const storageName = `${id}${ext}`; // basename only; ml-service resolves under its root
   await mkdir(UPLOAD_DIR, { recursive: true });
   await writeFile(path.join(UPLOAD_DIR, storageName), Buffer.from(await file.arrayBuffer()));
 
+  // Record the document BEFORE enqueuing, so the worker is guaranteed to find the row.
   await pool.query(
     "INSERT INTO documents (id, filename, storage_path, mime_type, status) VALUES ($1, $2, $3, $4, 'uploaded')",
     [id, file.name, storageName, mime],
   );
 
+  // Enqueue the heavy work. retryLimit + backoff: transient failures (e.g. Ollama
+  // briefly down) are retried; expireInMinutes bounds a stuck job.
   const boss = await getBoss();
   await boss.send(
     PROCESS_DOCUMENT,
@@ -58,5 +63,6 @@ export async function POST(req: NextRequest) {
     { retryLimit: 3, retryBackoff: true, expireInMinutes: 30 },
   );
 
+  // 202 Accepted: work is queued, not done. The client learns completion over WebSocket.
   return NextResponse.json({ documentId: id, status: "uploaded" }, { status: 202 });
 }

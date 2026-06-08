@@ -35,10 +35,13 @@ def summarize_document(text: str, generate: Callable[[str], str]) -> str:
     if not text:
         return ""
 
+    # Split into context-window-sized sections.
     sections = [text[i : i + SECTION_CHARS] for i in range(0, len(text), SECTION_CHARS)]
+    # Small doc → one LLM call, no reduce step needed.
     if len(sections) == 1:
         return _summarize_one(sections[0], generate)
 
+    # MAP: summarize each section independently. REDUCE: summarize the summaries into one.
     partials = [_summarize_one(s, generate) for s in sections]
     return _summarize_one("\n\n".join(partials), generate, reduce=True)
 
