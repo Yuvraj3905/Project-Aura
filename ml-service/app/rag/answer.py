@@ -58,6 +58,45 @@ def _build_prompt(query: str, chunks: list[dict]) -> str:
     )
 
 
+def _resolve_chunks(
+    query: str,
+    k: int,
+    document_ids: list[str] | None,
+    session_id: str | None,
+) -> tuple[list[dict], list[str] | None]:
+    """Retrieve chunks honoring the sticky per-session document scope.
+
+    Returns (chunks, scope_to_save). scope_to_save is non-None only when the session's
+    scope should change (first grounded answer, or a strong topic switch).
+
+    Paths:
+      explicit  — caller passed document_ids: manual selection always wins, no sticky.
+      lock      — no stored scope: global retrieval; grounded → lock to cited docs.
+      scoped    — stored scope, scoped retrieval grounded → stay in scope.
+      relock    — scoped weak; global retry clears the HIGHER relock bar → topic switch.
+      weak      — weak everywhere → return the weak scoped chunks so the guardrail
+                  fires (NO_ANSWER) instead of answering from an unrelated document.
+    """
+    if document_ids:
+        return retrieve(query, k, document_ids), None
+
+    stored = cache.get_scope(session_id) if session_id else None
+    if not stored:
+        chunks = retrieve(query, k, None)
+        if session_id and is_grounded(chunks, settings.retrieval_min_score):
+            return chunks, sorted({c["document_id"] for c in chunks})
+        return chunks, None
+
+    scoped = retrieve(query, k, stored)
+    if is_grounded(scoped, settings.retrieval_min_score):
+        return scoped, None
+
+    global_chunks = retrieve(query, k, None)
+    if is_grounded(global_chunks, settings.retrieval_relock_score):
+        return global_chunks, sorted({c["document_id"] for c in global_chunks})
+    return scoped, None
+
+
 def _citations(chunks: list[dict]) -> list[dict]:
     return [
         {"document_id": c["document_id"], "ordinal": c["ordinal"], "score": round(c["score"], 3)}
@@ -85,16 +124,23 @@ def answer_query(
     query: str,
     top_k: int | None = None,
     document_ids: list[str] | None = None,
+    session_id: str | None = None,
 ) -> dict:
-    """Blocking grounded answer. Cached in Redis by (query, top_k, document_ids)."""
+    """Blocking grounded answer. Cached in Redis by (query, top_k, effective doc scope)."""
     k = top_k or settings.retrieval_top_k
 
-    cached = cache.get_answer(query, k, document_ids)
+    # Effective scope for the cache key: manual selection, else the session's sticky
+    # scope. A relock later in the turn stores under the NEW scope (set below).
+    cache_docs = document_ids or (cache.get_scope(session_id) if session_id else None)
+    cached = cache.get_answer(query, k, cache_docs)
     if cached is not None:
         _record_cache_hit(cached)
         return {**cached, "cached": True}
 
-    chunks = retrieve(query, k, document_ids)
+    chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
+    if scope_to_save:
+        cache.set_scope(session_id, scope_to_save)
+        cache_docs = scope_to_save
     if not is_grounded(chunks, settings.retrieval_min_score):
         # Guardrail: off-knowledge-base query. No model call, no tokens.
         result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
@@ -107,7 +153,7 @@ def answer_query(
             "prompt_tokens": gen["prompt_tokens"], "completion_tokens": gen["completion_tokens"],
         }
 
-    cache.set_answer(query, k, document_ids, result)
+    cache.set_answer(query, k, cache_docs, result)
     return {**result, "cached": False}
 
 
@@ -115,6 +161,7 @@ def answer_stream(
     query: str,
     top_k: int | None = None,
     document_ids: list[str] | None = None,
+    session_id: str | None = None,
 ) -> Iterator[tuple[str, object]]:
     """Stream a grounded answer for SSE.
 
@@ -124,18 +171,22 @@ def answer_stream(
     """
     k = top_k or settings.retrieval_top_k
 
-    cached = cache.get_answer(query, k, document_ids)
+    cache_docs = document_ids or (cache.get_scope(session_id) if session_id else None)
+    cached = cache.get_answer(query, k, cache_docs)
     if cached is not None:
         _record_cache_hit(cached)
         yield ("token", cached["answer"])
         yield ("done", {**cached, "cached": True})
         return
 
-    chunks = retrieve(query, k, document_ids)
+    chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
+    if scope_to_save:
+        cache.set_scope(session_id, scope_to_save)
+        cache_docs = scope_to_save
     if not is_grounded(chunks, settings.retrieval_min_score):
         result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
-        cache.set_answer(query, k, document_ids, result)
+        cache.set_answer(query, k, cache_docs, result)
         yield ("token", NO_ANSWER)
         yield ("done", {**result, "cached": False})
         return
@@ -156,5 +207,5 @@ def answer_stream(
         "prompt_tokens": tokens.get("prompt_tokens", 0),
         "completion_tokens": tokens.get("completion_tokens", 0),
     }
-    cache.set_answer(query, k, document_ids, result)
+    cache.set_answer(query, k, cache_docs, result)
     yield ("done", {**result, "cached": False})

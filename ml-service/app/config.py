@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # unrelated text around ~0.3, relevant matches ~0.5-0.8, so 0.45 blocks off-topic
     # queries before the LLM is ever called.
     retrieval_min_score: float = 0.45
+    # When a session is scope-locked to certain docs and the scoped retrieval is weak,
+    # a global retry must clear this HIGHER bar to switch the session to other docs.
+    # Keeps incidental keyword overlap (e.g. "order" matching an unrelated doc) from
+    # hijacking the conversation, while a genuine topic change still re-locks.
+    retrieval_relock_score: float = 0.60
 
 
 settings = Settings()
