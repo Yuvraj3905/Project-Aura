@@ -84,7 +84,7 @@ def _resolve_chunks(
     if not stored:
         chunks = retrieve(query, k, None)
         if session_id and is_grounded(chunks, settings.retrieval_min_score):
-            return chunks, sorted({c["document_id"] for c in chunks})
+            return chunks, _lock_docs(chunks)
         return chunks, None
 
     scoped = retrieve(query, k, stored)
@@ -93,8 +93,22 @@ def _resolve_chunks(
 
     global_chunks = retrieve(query, k, None)
     if is_grounded(global_chunks, settings.retrieval_relock_score):
-        return global_chunks, sorted({c["document_id"] for c in global_chunks})
+        return global_chunks, _lock_docs(global_chunks)
     return scoped, None
+
+
+def _lock_docs(chunks: list[dict]) -> list[str]:
+    """Documents worth locking the session to: only those with a chunk clearing the
+    relock bar — weak tail chunks from unrelated docs must not ride into the scope
+    (a 0.5x tail match would otherwise smuggle an off-topic doc into every later
+    retrieval). The top-scoring doc is always included so a grounded-but-modest
+    answer still locks.
+    """
+    strong = {
+        c["document_id"] for c in chunks if c["score"] >= settings.retrieval_relock_score
+    }
+    strong.add(chunks[0]["document_id"])
+    return sorted(strong)
 
 
 def _citations(chunks: list[dict]) -> list[dict]:

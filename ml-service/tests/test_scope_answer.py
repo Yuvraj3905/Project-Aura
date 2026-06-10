@@ -32,6 +32,32 @@ def test_lock_on_first_grounded_answer(monkeypatch):
     assert scope_to_save == ["watch-doc"]
 
 
+def test_lock_excludes_weak_tail_documents(monkeypatch):
+    """Weak tail chunks from unrelated docs must NOT ride into the scope lock.
+
+    Regression for the storyline turn-8 bug: an unrelated CMS doc scored 0.546 on the
+    first watch query, entered the scope, and later answered 'place an order'.
+    """
+    scopes = setup_fakes(monkeypatch, {None: [
+        chunk("watch-doc", 0.75),
+        chunk("watch-doc", 0.72),
+        chunk("cms-doc", 0.55),     # below relock bar (0.60) — must be excluded
+        chunk("other-doc", 0.50),
+    ]})
+    chunks, scope_to_save = answer_mod._resolve_chunks("q", 5, None, "s1")
+    assert scope_to_save == ["watch-doc"]
+
+
+def test_lock_keeps_top_doc_even_if_below_relock_bar(monkeypatch):
+    """Grounded (>= min_score) but modest top score: still lock to the top doc."""
+    scopes = setup_fakes(monkeypatch, {None: [
+        chunk("watch-doc", 0.50),
+        chunk("cms-doc", 0.48),
+    ]})
+    chunks, scope_to_save = answer_mod._resolve_chunks("q", 5, None, "s1")
+    assert scope_to_save == ["watch-doc"]
+
+
 def test_scoped_hit_keeps_scope(monkeypatch):
     scopes = setup_fakes(monkeypatch, {("watch-doc",): [chunk("watch-doc", 0.70)]})
     scopes["s1"] = ["watch-doc"]
