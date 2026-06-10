@@ -104,6 +104,36 @@ def set_answer(
         pass
 
 
+# --- session scope (sticky doc-scope per conversation) -------------------------------
+# First grounded answer locks the conversation to the documents it cited; later queries
+# retrieve within that scope so ambiguous follow-ups ("the 44mm") stay on-product and
+# unrelated documents in the KB can't hijack an answer.
+
+SCOPE_TTL = 24 * 3600   # matches Rasa session_expiration_time (24h)
+SCOPE_PREFIX = "scope:"
+
+
+def get_scope(session_id: str) -> list[str] | None:
+    r = get_redis()
+    if not r or not session_id:
+        return None
+    try:
+        raw = r.get(SCOPE_PREFIX + session_id)
+        return json.loads(raw) if raw else None
+    except (redis.RedisError, ValueError):
+        return None
+
+
+def set_scope(session_id: str, document_ids: list[str]) -> None:
+    r = get_redis()
+    if not r or not session_id or not document_ids:
+        return
+    try:
+        r.set(SCOPE_PREFIX + session_id, json.dumps(sorted(set(document_ids))), ex=SCOPE_TTL)
+    except redis.RedisError:
+        pass
+
+
 def invalidate_answers() -> int:
     """Drop all cached answers (called when the knowledge base changes)."""
     r = get_redis()
