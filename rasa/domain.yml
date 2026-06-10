@@ -7,6 +7,8 @@ intents:
   - deny
   - bot_challenge
   - tech_query
+  - shopping
+  - buy_order
   - open_ticket
 
 slots:
@@ -35,16 +37,16 @@ forms:
 
 responses:
   utter_greet:
-    - text: "Hi, I'm Aura — your solutions architect. Ask me a technical question about the product, or say you'd like to open a support ticket."
+    - text: "Hey there! Welcome — I'm Aura, your personal product specialist. I'd love to help you find the perfect fit today. What are you looking for?"
 
   utter_goodbye:
-    - text: "Goodbye. Reach out any time."
+    - text: "Thanks for stopping by! Whenever you're ready to take the next step, I'm right here. Have a great day!"
 
   utter_iamabot:
-    - text: "I'm Aura, an automated sales engineer assistant backed by your internal docs."
+    - text: "I'm Aura — your always-on product specialist! I know our lineup inside-out and I'd love to help you pick a winner. What can I show you?"
 
   utter_please_rephrase:
-    - text: "I'm not sure I understood. Could you rephrase your technical question?"
+    - text: "I want to make sure I get you exactly what you need! Could you tell me a bit more about what you're looking for?"
 
   utter_ask_email:
     - text: "What's the best email address to reach you at?"

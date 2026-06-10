@@ -1,0 +1,101 @@
+version: "3.1"
+
+nlu:
+  - intent: greet
+    examples: |
+      - hi
+      - hello
+      - hey there
+      - good morning
+      - hi, I have a question
+      - hello, are you there
+
+  - intent: goodbye
+    examples: |
+      - bye
+      - goodbye
+      - see you
+      - that's all, thanks
+      - talk later
+
+  - intent: affirm
+    examples: |
+      - yes
+      - yeah
+      - correct
+      - that's right
+      - sounds good
+      - please do
+
+  - intent: deny
+    examples: |
+      - no
+      - nope
+      - not really
+      - don't
+      - that's not what I meant
+
+  - intent: bot_challenge
+    examples: |
+      - are you a bot
+      - am I talking to a human
+      - are you real
+      - is this a person or a machine
+
+  - intent: open_ticket
+    examples: |
+      - I want to open a support ticket
+      - I'd like to raise a ticket
+      - can you create a support ticket
+      - I need to report a problem
+      - log an issue for me
+      - open a ticket please
+      - I want to file a bug
+      - raise a support request
+      - something is broken, I need help from support
+
+  - intent: shopping
+    examples: |
+      - what have you got
+      - what do you have
+      - I'm shopping for a new smartwatch
+      - show me your products
+      - what do you sell
+      - I'm looking for a smartwatch
+      - what watches do you have
+      - looking to buy a watch for daily use
+      - what products do you offer
+      - I need a new watch
+      - help me choose a smartwatch
+      - what's in your lineup
+
+  - intent: buy_order
+    examples: |
+      - how do I place an order
+      - I want to buy it
+      - what's the price
+      - how much does it cost
+      - where can I buy this
+      - take my money
+      - I'm ready to purchase
+      - how can I order one
+      - what does it cost
+      - I'd like to buy the watch
+      - can I order it now
+
+  - intent: tech_query
+    examples: |
+      - does the API support OAuth 2.0 with custom claims
+      - what is the request timeout limit
+      - how many requests per minute can we send
+      - does the legacy v1 API support custom claims
+      - what authentication methods are supported
+      - is there a rate limit on the billing service
+      - which protocols does the gateway support
+      - what is the maximum payload size
+      - can the webhook retry failed deliveries
+      - does the service support SSO via SAML
+      - what TLS versions are accepted
+      - how do I rotate API keys
+      - is multi-region failover supported
+      - what is the SLA for the ingestion endpoint

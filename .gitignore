@@ -35,8 +35,8 @@ rasa/.rasa/
 pgdata/
 *.dump
 
-# uploaded documents (never pushed)
-data/
+# uploaded documents (never pushed) — anchored so rasa/data (training YAML) stays tracked
+/data/
 ml-service/data/
 
 # design docs / specs (local only — never pushed)

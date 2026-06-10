@@ -1,0 +1,53 @@
+version: "3.1"
+
+rules:
+  - rule: greet
+    steps:
+      - intent: greet
+      - action: utter_greet
+
+  - rule: goodbye
+    steps:
+      - intent: goodbye
+      - action: utter_goodbye
+
+  - rule: bot challenge
+    steps:
+      - intent: bot_challenge
+      - action: utter_iamabot
+
+  - rule: answer technical questions via RAG
+    steps:
+      - intent: tech_query
+      - action: action_tech_query
+
+  # Shopping openers and buy/order questions go to the same RAG sales agent; if the
+  # knowledge base can't ground an answer, the salesy NO_ANSWER deflects gracefully.
+  - rule: answer shopping questions via RAG
+    steps:
+      - intent: shopping
+      - action: action_tech_query
+
+  - rule: answer buy/order questions via RAG
+    steps:
+      - intent: buy_order
+      - action: action_tech_query
+
+  - rule: ask to rephrase on low confidence
+    steps:
+      - intent: nlu_fallback
+      - action: utter_please_rephrase
+
+  - rule: activate ticket form
+    steps:
+      - intent: open_ticket
+      - action: ticket_form
+      - active_loop: ticket_form
+
+  - rule: submit ticket form
+    condition:
+      - active_loop: ticket_form
+    steps:
+      - action: ticket_form
+      - active_loop: null
+      - action: action_submit_ticket
