@@ -84,7 +84,7 @@ export default function Home() {
     const res = await fetch("/api/chat/stream", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query, documentIds }),
+      body: JSON.stringify({ query, documentIds, sessionId }),
     });
     if (!res.body) {
       appendAura({ text: "stream unavailable", streaming: false });

@@ -11,10 +11,11 @@ const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://ml-service:8100";
  * restricts retrieval to a chosen subset of the knowledge base.
  */
 export async function POST(req: NextRequest) {
-  const { query, documentIds, topK } = (await req.json()) as {
+  const { query, documentIds, topK, sessionId } = (await req.json()) as {
     query?: string;
     documentIds?: string[];
     topK?: number;
+    sessionId?: string;
   };
 
   if (!query) {
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
         query,
         document_ids: documentIds?.length ? documentIds : null,
         top_k: topK ?? null,
+        // Enables the per-session sticky doc scope in ml-service.
+        session_id: sessionId ?? null,
       }),
     });
   } catch {

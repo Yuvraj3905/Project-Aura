@@ -88,7 +88,7 @@ class AnswerResponse(BaseModel):
 @app.post("/answer", response_model=AnswerResponse)
 def answer(req: AnswerRequest) -> AnswerResponse:
     """Retrieve grounded context and generate an answer (or refuse if unsupported)."""
-    result = answer_query(req.query, req.top_k, req.document_ids)
+    result = answer_query(req.query, req.top_k, req.document_ids, req.session_id)
     return AnswerResponse(**result)
 
 
@@ -103,7 +103,7 @@ def answer_stream_endpoint(req: AnswerRequest) -> StreamingResponse:
 
     def sse() -> "object":
         try:
-            for kind, payload in answer_stream(req.query, req.top_k, req.document_ids):
+            for kind, payload in answer_stream(req.query, req.top_k, req.document_ids, req.session_id):
                 if kind == "token":
                     yield f"event: token\ndata: {json.dumps({'text': payload})}\n\n"
                 else:
