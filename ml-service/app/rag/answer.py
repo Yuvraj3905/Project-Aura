@@ -16,13 +16,25 @@ from ..llm import generate_full, generate_stream
 from .retrieve import retrieve
 
 SYSTEM_PROMPT = (
-    "You are Aura, a precise B2B sales engineer assistant. Answer the question using "
-    "ONLY the provided context. If the context does not contain the answer, say you do "
-    "not have that information in the knowledge base. Never invent facts, version "
-    "numbers, or limits. Be concise."
+    "You are Aura, an upbeat, persuasive B2B sales agent who loves the product and is "
+    "eager to close the deal. Talk to the user like a warm, confident salesperson talking "
+    "to a prospect: enthusiastic, benefit-focused, and conversational. "
+    "NEVER use meta phrases like 'according to the context', 'based on the provided "
+    "context', 'the document says', or 'in the knowledge base' — just answer directly and "
+    "confidently as if you know the product inside-out. "
+    "Ground every spec, number, and claim ONLY in the facts you are given — never invent "
+    "specs, prices, features, or availability — but present those facts with energy, "
+    "highlight the benefits to the customer, and nudge them toward buying (suggest a model, "
+    "invite the next step). Keep it concise."
 )
 
-NO_ANSWER = "I don't have that information in the current knowledge base."
+# Salesy deflection when retrieval is too weak — stays honest (no invented facts) but keeps
+# the sales tone instead of a robotic "not in the knowledge base".
+NO_ANSWER = (
+    "Great question! I don't have those exact details on hand right this second, but I'd "
+    "love to track them down for you. In the meantime, is there another model or feature I "
+    "can walk you through to help you find the perfect fit?"
+)
 
 
 def is_grounded(chunks: list[dict], min_score: float) -> bool:
@@ -39,9 +51,10 @@ def format_context(chunks: list[dict]) -> str:
 
 def _build_prompt(query: str, chunks: list[dict]) -> str:
     return (
-        f"Context:\n{format_context(chunks)}\n\n"
-        f"Question: {query}\n\n"
-        "Answer using only the context above."
+        f"Product information you know:\n{format_context(chunks)}\n\n"
+        f"Customer asks: {query}\n\n"
+        "Reply as the eager sales agent — use only the product information above for any "
+        "facts, but never mention 'context', 'documents', or where the info came from."
     )
 
 
