@@ -68,20 +68,39 @@ nlu:
       - I need a new watch
       - help me choose a smartwatch
       - what's in your lineup
+      - what's the price
+      - how much does it cost
+      - what does the watch 8 cost
+      - how much is the Classic
 
   - intent: buy_order
     examples: |
       - how do I place an order
       - I want to buy it
-      - what's the price
-      - how much does it cost
-      - where can I buy this
+      - I'll take the 44mm
+      - I'll take the Galaxy Watch 8
+      - I want to order the Watch 8 Classic
       - take my money
       - I'm ready to purchase
       - how can I order one
-      - what does it cost
       - I'd like to buy the watch
       - can I order it now
+      - let's place the order
+      - I want to buy the Galaxy Watch 8 44mm
+      - sign me up for the Watch 8
+
+  - intent: request_contact
+    examples: |
+      - please have someone contact me
+      - can a specialist reach out to me
+      - I'd like someone to follow up
+      - have your team get in touch
+      - send me more information
+      - contact me about this
+      - I'm interested, follow up with me
+      - get back to me about the watch
+      - can you reach out to me later
+      - I'd like to be contacted
 
   - intent: tech_query
     examples: |

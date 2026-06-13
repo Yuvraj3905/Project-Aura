@@ -95,3 +95,121 @@ class ActionSubmitTicket(Action):
 
         dispatcher.utter_message(response="utter_ticket_created")
         return [SlotSet("email", None), SlotSet("issue_description", None)]
+
+
+class ValidateLeadForm(FormValidationAction):
+    """Validate the email slot for the lead form; re-ask on a malformed address."""
+
+    def name(self) -> str:
+        return "validate_lead_form"
+
+    def validate_email(
+        self,
+        slot_value: Any,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: dict[str, Any],
+    ) -> dict[str, Any]:
+        if EMAIL_RE.match(str(slot_value).strip()):
+            return {"email": str(slot_value).strip()}
+        dispatcher.utter_message(text="That doesn't look like a valid email. Please re-enter it.")
+        return {"email": None}
+
+
+class ActionSubmitLead(Action):
+    """Persist a captured lead via ml-service /leads.
+
+    product_interest is best-effort: the most recent thing the prospect asked about
+    (the last user message before the form started), so the follow-up has context.
+    """
+
+    def name(self) -> str:
+        return "action_submit_lead"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        name = tracker.get_slot("contact_name")
+        email = tracker.get_slot("email")
+        product_interest = _recent_product_interest(tracker)
+
+        try:
+            _post_json(
+                f"{ML_SERVICE_URL}/leads",
+                {
+                    "name": name,
+                    "email": email,
+                    "product_interest": product_interest,
+                    "session_id": tracker.sender_id,
+                },
+                timeout=30.0,
+            )
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            dispatcher.utter_message(response="utter_lead_failed")
+            return []
+
+        dispatcher.utter_message(response="utter_lead_created")
+        return [SlotSet("contact_name", None), SlotSet("email", None)]
+
+
+class ValidateOrderForm(FormValidationAction):
+    """Validate the email slot for the order form; re-ask on a malformed address."""
+
+    def name(self) -> str:
+        return "validate_order_form"
+
+    def validate_email(
+        self,
+        slot_value: Any,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: dict[str, Any],
+    ) -> dict[str, Any]:
+        if EMAIL_RE.match(str(slot_value).strip()):
+            return {"email": str(slot_value).strip()}
+        dispatcher.utter_message(text="That doesn't look like a valid email. Please re-enter it.")
+        return {"email": None}
+
+
+class ActionSubmitOrder(Action):
+    """Persist a purchase order via ml-service /orders."""
+
+    def name(self) -> str:
+        return "action_submit_order"
+
+    def run(
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        product = tracker.get_slot("product")
+        email = tracker.get_slot("email")
+
+        try:
+            _post_json(
+                f"{ML_SERVICE_URL}/orders",
+                {"product": product, "email": email, "session_id": tracker.sender_id},
+                timeout=30.0,
+            )
+        except (urllib.error.URLError, TimeoutError, ValueError):
+            dispatcher.utter_message(response="utter_order_failed")
+            return []
+
+        dispatcher.utter_message(response="utter_order_created")
+        return [SlotSet("product", None), SlotSet("email", None)]
+
+
+def _recent_product_interest(tracker: Tracker) -> str | None:
+    """Best-effort: the last substantive user message before the lead form started,
+    used to tag the lead with what the prospect was interested in."""
+    for event in reversed(tracker.events):
+        if event.get("event") == "user":
+            text = (event.get("text") or "").strip()
+            # Skip the trigger message and the name/email the form just collected.
+            if text and "@" not in text and len(text.split()) > 2:
+                return text[:200]
+    return None

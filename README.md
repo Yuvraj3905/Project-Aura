@@ -140,7 +140,19 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    - Asks for an issue description.
    - Confirms the ticket and writes a row to `support_tickets` via ml-service
      `/tickets`.
-4. **Multi-day continuation.** Rasa persists session state in Postgres (24-hour
+4. **Place an order (sales funnel).** Say `I want to buy the Galaxy Watch 8 44mm`
+   (or "I'll take the 44mm", "how do I place an order"). The `buy_order` intent runs
+   the `order_form`:
+   - Asks which model you want (`product`).
+   - Asks for your email — malformed emails are rejected and re-asked.
+   - Confirms and writes a row to `orders` (status `pending`) via ml-service `/orders`.
+5. **Request a callback (lead capture).** Say `please have someone contact me` (or
+   "send me more info", "I'm interested, follow up"). The `request_contact` intent runs
+   the `lead_form`:
+   - Asks for your name, then email.
+   - Writes a row to `leads` (status `new`, tagged with what you were asking about)
+     via ml-service `/leads`, so a specialist can follow up.
+6. **Multi-day continuation.** Rasa persists session state in Postgres (24-hour
    default expiration, slots carry over), so re-opening a conversation with the same
    `sessionId` resumes context.
 
@@ -210,6 +222,20 @@ curl -X POST http://localhost:8100/tickets \
 curl http://localhost:8100/tickets
 curl -X PATCH http://localhost:8100/tickets/<ticketId> \
   -H 'content-type: application/json' -d '{"status":"in_progress"}'
+
+# Sales funnel — capture a lead (buying signal → follow-up)
+curl -X POST http://localhost:8100/leads \
+  -H 'content-type: application/json' \
+  -d '{"name":"Sam Buyer","email":"sam@acme.com","product_interest":"Galaxy Watch 8","session_id":"acme"}'
+curl http://localhost:8100/leads
+
+# Place an order (purchase intent) / transition status (pending -> confirmed -> fulfilled | cancelled)
+curl -X POST http://localhost:8100/orders \
+  -H 'content-type: application/json' \
+  -d '{"email":"sam@acme.com","product":"Galaxy Watch 8 44mm","quantity":1,"session_id":"acme"}'
+curl http://localhost:8100/orders
+curl -X PATCH http://localhost:8100/orders/<orderId> \
+  -H 'content-type: application/json' -d '{"status":"confirmed"}'
 ```
 
 ### C. Operations
@@ -226,9 +252,18 @@ docker compose exec postgres psql -U aura -d aura \
 docker compose exec postgres psql -U aura -d aura \
   -c "select id, email, status, created_at from support_tickets order by created_at desc;"
 
+# Sales funnel — captured leads and orders
+docker compose exec postgres psql -U aura -d aura \
+  -c "select id, name, email, product_interest, status, created_at from leads order by created_at desc;"
+docker compose exec postgres psql -U aura -d aura \
+  -c "select id, product, quantity, email, status, created_at from orders order by created_at desc;"
+
 # Retrain Rasa after editing rasa/data/*.yml or rasa/domain.yml
 docker compose run --rm rasa train
 docker compose restart rasa
+# IMPORTANT: after editing rasa/actions/actions.py (new/changed custom actions),
+# restart the action server too — `rasa run actions` does NOT hot-reload:
+docker compose restart rasa-actions
 
 # Tear it all down (data volumes preserved)
 docker compose down
@@ -288,7 +323,8 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
   directive → web opens SSE to `/api/chat/stream` → ml-service `/answer/stream`
   (vector search + grounded prompt, streamed token by token, refuses when retrieval is
   weak). `open_ticket` → `ticket_form` collects email + description → ml-service
-  `/tickets`.
+  `/tickets`. `buy_order` → `order_form` (product + email) → `/orders`;
+  `request_contact` → `lead_form` (name + email) → `/leads` — the sales funnel.
 - **Cache:** query embeddings (24h) and grounded answers (1h) are cached in Redis;
   the answer cache is flushed whenever a new document becomes ready.
 
@@ -297,15 +333,38 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-dim,
 L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
 `POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `POST /tickets`,
-`GET /tickets`, `PATCH /tickets/{id}`, `GET /usage`.
+`GET /tickets`, `PATCH /tickets/{id}`, `POST /leads`, `GET /leads`, `POST /orders`,
+`GET /orders`, `PATCH /orders/{id}`, `GET /usage`.
 
 `/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
-retrieval to a subset) and are Redis-cached. `/ingest` accepts only a `document_id`;
-the file path is resolved from `documents.storage_path` under the upload root (no
-caller-supplied paths). The host port is bound to `127.0.0.1`.
+retrieval to a subset) plus an optional `session_id` (enables the per-session sticky
+document scope — the first grounded answer locks retrieval to the documents it cited)
+and are Redis-cached. `/ingest` accepts only a `document_id`; the file path is resolved
+from `documents.storage_path` under the upload root (no caller-supplied paths). The host
+port is bound to `127.0.0.1`.
 
 Run the tests inside the image:
 
 ```bash
 docker compose run --rm --no-deps ml-service pytest
+```
+
+### Schema migrations
+
+Migrations live in `db/migrations/*.sql` and are mounted into the Postgres init dir, so a
+**fresh volume** bootstraps the full schema automatically. To apply a new migration to an
+**existing** volume, run it by hand, e.g.:
+
+```bash
+docker exec -i aura-postgres psql -U aura -d aura < db/migrations/0004_leads_orders.sql
+```
+
+### End-to-end test scripts
+
+Two Python scripts drive the live stack (`:3100`) and assert on behavior — both exit
+non-zero on failure, so they double as regression checks:
+
+```bash
+python3 scripts/storyline_test.py   # sales persona, sticky doc-scope, no cross-doc bleed (LLM — slow)
+python3 scripts/funnel_test.py       # order + lead capture flows, bad-email rejection (Rasa forms — fast)
 ```

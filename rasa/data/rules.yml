@@ -21,17 +21,42 @@ rules:
       - intent: tech_query
       - action: action_tech_query
 
-  # Shopping openers and buy/order questions go to the same RAG sales agent; if the
+  # Shopping openers (incl. price questions) go to the RAG sales agent; if the
   # knowledge base can't ground an answer, the salesy NO_ANSWER deflects gracefully.
   - rule: answer shopping questions via RAG
     steps:
       - intent: shopping
       - action: action_tech_query
 
-  - rule: answer buy/order questions via RAG
+  # Purchase intent → collect product + email, then place the order.
+  - rule: activate order form
     steps:
       - intent: buy_order
-      - action: action_tech_query
+      - action: order_form
+      - active_loop: order_form
+
+  - rule: submit order form
+    condition:
+      - active_loop: order_form
+    steps:
+      - action: order_form
+      - active_loop: null
+      - action: action_submit_order
+
+  # Buying signal ("contact me") → collect name + email as a lead for follow-up.
+  - rule: activate lead form
+    steps:
+      - intent: request_contact
+      - action: lead_form
+      - active_loop: lead_form
+
+  - rule: submit lead form
+    condition:
+      - active_loop: lead_form
+    steps:
+      - action: lead_form
+      - active_loop: null
+      - action: action_submit_lead
 
   - rule: ask to rephrase on low confidence
     steps:

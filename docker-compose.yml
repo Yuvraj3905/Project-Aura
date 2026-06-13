@@ -26,6 +26,7 @@ services:
       - ./db/migrations/0001_init_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
       - ./db/migrations/0002_ticket_in_progress.sql:/docker-entrypoint-initdb.d/02_ticket_in_progress.sql:ro
       - ./db/migrations/0003_llm_usage.sql:/docker-entrypoint-initdb.d/03_llm_usage.sql:ro
+      - ./db/migrations/0004_leads_orders.sql:/docker-entrypoint-initdb.d/04_leads_orders.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
       interval: 5s

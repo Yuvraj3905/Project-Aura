@@ -9,6 +9,7 @@ intents:
   - tech_query
   - shopping
   - buy_order
+  - request_contact
   - open_ticket
 
 slots:
@@ -20,6 +21,10 @@ slots:
         conditions:
           - active_loop: ticket_form
             requested_slot: email
+          - active_loop: lead_form
+            requested_slot: email
+          - active_loop: order_form
+            requested_slot: email
   issue_description:
     type: text
     influence_conversation: false
@@ -28,12 +33,36 @@ slots:
         conditions:
           - active_loop: ticket_form
             requested_slot: issue_description
+  contact_name:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: lead_form
+            requested_slot: contact_name
+  product:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: order_form
+            requested_slot: product
 
 forms:
   ticket_form:
     required_slots:
       - email
       - issue_description
+  lead_form:
+    required_slots:
+      - contact_name
+      - email
+  order_form:
+    required_slots:
+      - product
+      - email
 
 responses:
   utter_greet:
@@ -60,10 +89,32 @@ responses:
   utter_ticket_failed:
     - text: "Sorry, I couldn't create the ticket right now. Please try again shortly."
 
+  utter_ask_contact_name:
+    - text: "Love it! I'd be glad to have a specialist follow up with you. Who do I have the pleasure of helping — what's your name?"
+
+  utter_ask_product:
+    - text: "Awesome choice! Which model would you like to order? (e.g. Galaxy Watch 8 44mm, Watch 8 Classic 46mm)"
+
+  utter_lead_created:
+    - text: "You're all set — I've got your details and a specialist will reach out very soon. Anything else I can help you with while you're here?"
+
+  utter_lead_failed:
+    - text: "Hmm, I couldn't save your details just now. Mind sharing them again in a moment?"
+
+  utter_order_created:
+    - text: "Fantastic — your order is in! 🎉 We'll send a confirmation to your email shortly. Thanks for choosing us — is there anything else I can get ready for you?"
+
+  utter_order_failed:
+    - text: "Sorry, I hit a snag placing that order. Let's try again in a moment — I really want to get this set up for you."
+
 actions:
   - action_tech_query
   - action_submit_ticket
   - validate_ticket_form
+  - action_submit_lead
+  - validate_lead_form
+  - action_submit_order
+  - validate_order_form
 
 session_config:
   session_expiration_time: 1440   # minutes (24h) — multi-day negotiations resume context

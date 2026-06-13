@@ -10,7 +10,17 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import settings
-from .db import create_ticket, get_conn, list_tickets, update_ticket_status
+from .db import (
+    create_lead,
+    create_order,
+    create_ticket,
+    get_conn,
+    list_leads,
+    list_orders,
+    list_tickets,
+    update_order_status,
+    update_ticket_status,
+)
 from .embeddings import embed_texts
 from .ingest import ingest_document
 from .rag.answer import answer_query, answer_stream
@@ -163,6 +173,95 @@ def patch_ticket(ticket_id: str, req: TicketStatusRequest) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="ticket not found")
     return {"ticket_id": ticket_id, "status": req.status}
+
+
+# --- Sales funnel: leads + orders --------------------------------------------------
+
+
+class LeadRequest(BaseModel):
+    email: str
+    name: str | None = None
+    product_interest: str | None = None
+    session_id: str | None = None
+
+
+class LeadResponse(BaseModel):
+    lead_id: str
+
+
+@app.post("/leads", response_model=LeadResponse)
+def create_lead_endpoint(req: LeadRequest) -> LeadResponse:
+    """Capture a sales lead (called by the Rasa lead form on a buying signal)."""
+    with get_conn() as conn:
+        lead_id = create_lead(
+            conn,
+            email=req.email,
+            name=req.name,
+            product_interest=req.product_interest,
+            session_id=req.session_id,
+        )
+        conn.commit()
+    return LeadResponse(lead_id=lead_id)
+
+
+@app.get("/leads")
+def get_leads() -> dict:
+    """List captured leads (newest first)."""
+    with get_conn() as conn:
+        return {"leads": list_leads(conn)}
+
+
+class OrderRequest(BaseModel):
+    email: str
+    product: str
+    quantity: int = 1
+    session_id: str | None = None
+
+
+class OrderResponse(BaseModel):
+    order_id: str
+
+
+@app.post("/orders", response_model=OrderResponse)
+def create_order_endpoint(req: OrderRequest) -> OrderResponse:
+    """Place a purchase order (called by the Rasa order form on purchase intent)."""
+    with get_conn() as conn:
+        order_id = create_order(
+            conn,
+            email=req.email,
+            product=req.product,
+            quantity=req.quantity,
+            session_id=req.session_id,
+        )
+        conn.commit()
+    return OrderResponse(order_id=order_id)
+
+
+@app.get("/orders")
+def get_orders() -> dict:
+    """List orders (newest first)."""
+    with get_conn() as conn:
+        return {"orders": list_orders(conn)}
+
+
+ORDER_STATES = ("pending", "confirmed", "fulfilled", "cancelled")
+
+
+class OrderStatusRequest(BaseModel):
+    status: str
+
+
+@app.patch("/orders/{order_id}")
+def patch_order(order_id: str, req: OrderStatusRequest) -> dict:
+    """Transition an order's status: pending -> confirmed -> fulfilled (or cancelled)."""
+    if req.status not in ORDER_STATES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {ORDER_STATES}")
+    with get_conn() as conn:
+        ok = update_order_status(conn, order_id, req.status)
+        conn.commit()
+    if not ok:
+        raise HTTPException(status_code=404, detail="order not found")
+    return {"order_id": order_id, "status": req.status}
 
 
 @app.get("/usage")
