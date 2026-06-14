@@ -96,3 +96,12 @@ def test_patch_order_not_found(client, monkeypatch):
     monkeypatch.setattr(main, "update_order_status", lambda conn, oid, status: False)
     r = client.patch("/orders/missing", json={"status": "confirmed"})
     assert r.status_code == 404
+
+
+def test_clear_session_scope(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(main.cache, "clear_scope", lambda sid: seen.update(sid=sid))
+    r = client.delete("/session/sess-42/scope")
+    assert r.status_code == 200
+    assert r.json() == {"session_id": "sess-42", "cleared": True}
+    assert seen == {"sid": "sess-42"}

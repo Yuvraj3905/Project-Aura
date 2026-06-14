@@ -134,6 +134,17 @@ def set_scope(session_id: str, document_ids: list[str]) -> None:
         pass
 
 
+def clear_scope(session_id: str) -> None:
+    """Drop a conversation's sticky doc scope (called when a chat session is disposed)."""
+    r = get_redis()
+    if not r or not session_id:
+        return
+    try:
+        r.delete(SCOPE_PREFIX + session_id)
+    except redis.RedisError:
+        pass
+
+
 def invalidate_answers() -> int:
     """Drop all cached answers (called when the knowledge base changes)."""
     r = get_redis()

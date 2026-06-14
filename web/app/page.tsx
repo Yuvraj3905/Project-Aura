@@ -22,7 +22,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function Home() {
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId, setSessionId] = useState(() => crypto.randomUUID());
   const [docs, setDocs] = useState<Doc[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -126,6 +126,26 @@ export default function Home() {
     }
   }
 
+  // Start a fresh conversation: dispose the old session's server state (sticky doc
+  // scope), then reset the local session id, transcript, and document selection.
+  async function newChat() {
+    if (busy) return;
+    const old = sessionId;
+    setMessages([]);
+    setInput("");
+    setSelected(new Set());
+    setSessionId(crypto.randomUUID());
+    try {
+      await fetch("/api/session/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: old }),
+      });
+    } catch {
+      // best-effort; local reset already happened
+    }
+  }
+
   async function onSend() {
     const text = input.trim();
     if (!text || busy) return;
@@ -195,8 +215,18 @@ export default function Home() {
       </section>
 
       <section style={{ border: "1px solid #ddd", borderRadius: 8, padding: "1rem", marginTop: "1rem" }}>
-        <h2 style={{ fontSize: "1rem" }}>Chat</h2>
-        <div style={{ minHeight: 200, maxHeight: 360, overflowY: "auto", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2 style={{ fontSize: "1rem", margin: 0 }}>Chat</h2>
+          <button
+            onClick={newChat}
+            disabled={busy}
+            title="Start a new conversation and dispose the current one"
+            style={{ padding: "4px 12px", fontSize: 13, cursor: "pointer" }}
+          >
+            + New chat
+          </button>
+        </div>
+        <div style={{ minHeight: 200, maxHeight: 360, overflowY: "auto", margin: "8px 0" }}>
           {messages.map((m, i) => (
             <div key={i} style={{ textAlign: m.role === "user" ? "right" : "left", margin: "6px 0" }}>
               <span

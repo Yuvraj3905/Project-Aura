@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from . import cache
 from .config import settings
 from .db import (
     create_lead,
@@ -262,6 +263,17 @@ def patch_order(order_id: str, req: OrderStatusRequest) -> dict:
     if not ok:
         raise HTTPException(status_code=404, detail="order not found")
     return {"order_id": order_id, "status": req.status}
+
+
+@app.delete("/session/{session_id}/scope")
+def clear_session_scope(session_id: str) -> dict:
+    """Dispose a conversation's sticky document scope.
+
+    Called when the user starts a new chat so the fresh session begins with global
+    retrieval instead of inheriting the previous conversation's locked documents.
+    """
+    cache.clear_scope(session_id)
+    return {"session_id": session_id, "cleared": True}
 
 
 @app.get("/usage")
