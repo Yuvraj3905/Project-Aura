@@ -72,5 +72,13 @@ class Settings(BaseSettings):
     # rewordings with a wide margin before any risk of reusing an unrelated answer.
     semantic_cache_threshold: float = 0.92
 
+    # --- Query rewriting (conversation-aware follow-ups) ---
+    # Resolve anaphora ("what is its battery" -> "Galaxy Watch 8 Classic battery") by
+    # rewriting a follow-up into a standalone question using recent turns before retrieval.
+    # Gated to likely follow-ups (pronouns / very short), so standalone questions skip the
+    # extra LLM call.
+    query_rewrite: bool = True
+    query_rewrite_max_turns: int = 3   # recent (q,a) turns kept per session for context
+
 
 settings = Settings()

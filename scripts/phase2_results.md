@@ -75,9 +75,35 @@ New: `test_hybrid.py` (RRF fusion ordering/dedupe/limit, MMR dedupe),
 ## Regression
 
 - `scripts/funnel_test.py` — **PASS** (order + lead + bad-email).
-- `scripts/storyline_test.py` — **PASS, 8/8** after the finding-A NLU fix. Spec turns route
-  to RAG and render markdown (bold specs, bullet comparisons, a model/spec table); turn 8
-  "how do I place an order?" correctly enters the order form with no news-CMS bleed.
+- `scripts/storyline_test.py` — **PASS, 8/8** after the finding-A NLU fix, and **re-run
+  PASS 8/8 after adding query rewrite** (follow-up turns like "How is it different from the
+  Watch 7?" / "Does the Classic have a rotating bezel?" are now rewritten before retrieval
+  yet still resolve correctly). Spec turns route to RAG and render markdown (bold specs,
+  bullet comparisons, a model/spec table); turn 8 "how do I place an order?" correctly
+  enters the order form with no news-CMS bleed.
+- `scripts/rewrite_test.py` — **PASS** (pronoun follow-up resolves to subject).
+- `scripts/funnel_test.py` — **PASS** (re-run after rewrite; form turns unaffected).
+
+## Query rewrite (Tier 2 — conversation-aware follow-ups) — PASS
+
+Added after testing surfaced that follow-ups lost context: "what is **its** battery"
+answered generically because the RAG path only ever saw the latest message (stateless).
+
+- `cache.append_history/get_history` — last 3 (q,a) turns per session in Redis (disposed on
+  New chat). `_looks_like_followup` gates on pronouns / short messages; `_maybe_rewrite`
+  calls the LLM only then, with a guard that falls back to the original on junk output.
+  Rewritten query feeds retrieval, caching, and the prompt. Flag `QUERY_REWRITE`.
+- Unit: `test_history.py` (4), `test_rewrite.py` (7) — follow-up detection, history cap,
+  rewrite-with-history, skip-standalone, skip-no-history, bad-LLM fallback. **64 pytest total.**
+- Live (`scripts/rewrite_test.py`):
+  ```
+  Q1: Tell me about the Galaxy Watch 8 Classic        → grounded
+  Q2: what is its battery   (pronoun follow-up)
+  A2: ...the Galaxy Watch 8 Classic (46mm) has a battery ... up to 445 mah...
+  PASS — resolved to the Classic's battery (445 mAh), stayed on subject
+  ```
+  This is the exact failure the user reported ("why it is not taking the context") — now
+  fixed: the pronoun follow-up resolves to the prior subject.
 
 ## Net result
 

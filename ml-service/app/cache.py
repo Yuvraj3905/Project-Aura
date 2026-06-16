@@ -134,13 +134,45 @@ def set_scope(session_id: str, document_ids: list[str]) -> None:
         pass
 
 
+# --- conversation history (for query rewriting) -------------------------------------
+
+HISTORY_PREFIX = "hist:"
+HISTORY_TTL = 24 * 3600
+_ANSWER_SNIPPET = 300
+
+
+def get_history(session_id: str) -> list[dict]:
+    """Recent [{q, a}, ...] turns for a session (oldest first); [] if none/disabled."""
+    r = get_redis()
+    if not r or not session_id:
+        return []
+    try:
+        raw = r.get(HISTORY_PREFIX + session_id)
+        return json.loads(raw) if raw else []
+    except (redis.RedisError, ValueError):
+        return []
+
+
+def append_history(session_id: str, query: str, answer: str, max_turns: int) -> None:
+    """Append a (query, answer-snippet) turn, keeping only the last `max_turns`."""
+    r = get_redis()
+    if not r or not session_id:
+        return
+    try:
+        hist = get_history(session_id)
+        hist.append({"q": query, "a": (answer or "")[:_ANSWER_SNIPPET]})
+        r.set(HISTORY_PREFIX + session_id, json.dumps(hist[-max_turns:]), ex=HISTORY_TTL)
+    except redis.RedisError:
+        pass
+
+
 def clear_scope(session_id: str) -> None:
     """Drop a conversation's sticky doc scope (called when a chat session is disposed)."""
     r = get_redis()
     if not r or not session_id:
         return
     try:
-        r.delete(SCOPE_PREFIX + session_id)
+        r.delete(SCOPE_PREFIX + session_id, HISTORY_PREFIX + session_id)
     except redis.RedisError:
         pass
 

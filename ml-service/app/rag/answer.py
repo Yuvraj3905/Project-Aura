@@ -67,6 +67,65 @@ def _build_prompt(query: str, chunks: list[dict]) -> str:
     )
 
 
+REWRITE_SYSTEM = (
+    "You rewrite a customer's follow-up message into a single standalone question, using "
+    "the conversation so far to resolve references like 'it', 'its', 'that one', 'the "
+    "other'. Output ONLY the rewritten question — no preamble, no quotes. If the message "
+    "is already standalone, output it unchanged."
+)
+
+# Anaphora / ellipsis signals that a message leans on prior turns.
+_FOLLOWUP_WORDS = {
+    "it", "its", "it's", "that", "this", "they", "them", "those", "these",
+    "one", "ones", "other", "another", "same", "he", "she",
+}
+
+
+def _looks_like_followup(query: str) -> bool:
+    """Cheap gate: only rewrite messages that likely depend on prior turns, so standalone
+    questions skip the extra LLM call."""
+    words = [w.strip("?.,!").lower() for w in query.split()]
+    if len(words) <= 3:
+        return True
+    return any(w in _FOLLOWUP_WORDS for w in words)
+
+
+def _rewrite_llm(query: str, history: list[dict]) -> str:
+    """Ask the LLM to resolve a follow-up into a standalone question. Returns "" on failure."""
+    convo = "\n".join(f"Customer: {h['q']}\nAura: {h['a']}" for h in history)
+    prompt = (
+        f"Conversation so far:\n{convo}\n\n"
+        f"Follow-up message: {query}\n\n"
+        "Standalone question:"
+    )
+    try:
+        return generate_full(prompt, system=REWRITE_SYSTEM, kind="rewrite")["text"].strip()
+    except Exception as exc:  # noqa: BLE001 — never let rewrite break answering
+        log.warning("query rewrite failed: %s", exc)
+        return ""
+
+
+def _maybe_rewrite(query: str, session_id: str | None) -> str:
+    """Return a standalone version of `query` when it's a follow-up and we have history;
+    otherwise return `query` unchanged."""
+    if not settings.query_rewrite or not session_id or not _looks_like_followup(query):
+        return query
+    history = cache.get_history(session_id)
+    if not history:
+        return query
+    rewritten = _rewrite_llm(query, history[-settings.query_rewrite_max_turns:])
+    # Guard against junk: empty, or implausibly long (model rambled instead of one question).
+    if not rewritten or len(rewritten) > 300:
+        return query
+    return rewritten
+
+
+def _record_turn(session_id: str | None, query: str, answer: str) -> None:
+    """Store the (original user query, answer) turn so the next follow-up can be resolved."""
+    if settings.query_rewrite and session_id:
+        cache.append_history(session_id, query, answer, settings.query_rewrite_max_turns)
+
+
 def _semantic_scope_key(k: int, document_ids: list[str] | None) -> str:
     """Cache partition key — same dimensions the exact Redis answer cache keys on, so a
     semantic hit can never cross a document scope."""
@@ -188,21 +247,27 @@ def answer_query(
     """Blocking grounded answer. Cached in Redis by (query, top_k, effective doc scope)."""
     k = top_k or settings.retrieval_top_k
 
+    # Resolve a follow-up ("its battery") into a standalone question before anything else,
+    # so retrieval, caching, and the prompt all key on the fully-specified query.
+    eff = _maybe_rewrite(query, session_id)
+
     # Effective scope for the cache key: manual selection, else the session's sticky
     # scope. A relock later in the turn stores under the NEW scope (set below).
     cache_docs = document_ids or (cache.get_scope(session_id) if session_id else None)
-    cached = cache.get_answer(query, k, cache_docs)
+    cached = cache.get_answer(eff, k, cache_docs)
     if cached is not None:
         _record_cache_hit(cached)
+        _record_turn(session_id, query, cached["answer"])
         return {**cached, "cached": True}
 
     # Fuzzy reuse: a paraphrase of a prior question in the same scope.
-    sem = _semantic_get(query, k, cache_docs)
+    sem = _semantic_get(eff, k, cache_docs)
     if sem is not None:
         _record_cache_hit(sem)
+        _record_turn(session_id, query, sem["answer"])
         return {**sem, "cached": True}
 
-    chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
+    chunks, scope_to_save = _resolve_chunks(eff, k, document_ids, session_id)
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
         cache_docs = scope_to_save
@@ -211,15 +276,16 @@ def answer_query(
         result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
     else:
-        gen = generate_full(_build_prompt(query, chunks), system=SYSTEM_PROMPT, kind="answer")
+        gen = generate_full(_build_prompt(eff, chunks), system=SYSTEM_PROMPT, kind="answer")
         result = {
             "answer": gen["text"], "grounded": True, "citations": _citations(chunks),
             # Stored so a future cache hit can report the tokens it saved.
             "prompt_tokens": gen["prompt_tokens"], "completion_tokens": gen["completion_tokens"],
         }
 
-    cache.set_answer(query, k, cache_docs, result)
-    _semantic_put(query, k, cache_docs, result)
+    cache.set_answer(eff, k, cache_docs, result)
+    _semantic_put(eff, k, cache_docs, result)
+    _record_turn(session_id, query, result["answer"])
     return {**result, "cached": False}
 
 
@@ -237,30 +303,35 @@ def answer_stream(
     """
     k = top_k or settings.retrieval_top_k
 
+    eff = _maybe_rewrite(query, session_id)
+
     cache_docs = document_ids or (cache.get_scope(session_id) if session_id else None)
-    cached = cache.get_answer(query, k, cache_docs)
+    cached = cache.get_answer(eff, k, cache_docs)
     if cached is not None:
         _record_cache_hit(cached)
+        _record_turn(session_id, query, cached["answer"])
         yield ("token", cached["answer"])
         yield ("done", {**cached, "cached": True})
         return
 
-    sem = _semantic_get(query, k, cache_docs)
+    sem = _semantic_get(eff, k, cache_docs)
     if sem is not None:
         _record_cache_hit(sem)
+        _record_turn(session_id, query, sem["answer"])
         yield ("token", sem["answer"])
         yield ("done", {**sem, "cached": True})
         return
 
-    chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
+    chunks, scope_to_save = _resolve_chunks(eff, k, document_ids, session_id)
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
         cache_docs = scope_to_save
     if not is_grounded(chunks, settings.retrieval_min_score):
         result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
-        cache.set_answer(query, k, cache_docs, result)
-        _semantic_put(query, k, cache_docs, result)
+        cache.set_answer(eff, k, cache_docs, result)
+        _semantic_put(eff, k, cache_docs, result)
+        _record_turn(session_id, query, NO_ANSWER)
         yield ("token", NO_ANSWER)
         yield ("done", {**result, "cached": False})
         return
@@ -270,7 +341,7 @@ def answer_stream(
     tokens: dict = {}
     parts: list[str] = []
     for tok in generate_stream(
-        _build_prompt(query, chunks), system=SYSTEM_PROMPT, kind="answer",
+        _build_prompt(eff, chunks), system=SYSTEM_PROMPT, kind="answer",
         on_usage=lambda meta: tokens.update(meta),
     ):
         parts.append(tok)
@@ -281,6 +352,7 @@ def answer_stream(
         "prompt_tokens": tokens.get("prompt_tokens", 0),
         "completion_tokens": tokens.get("completion_tokens", 0),
     }
-    cache.set_answer(query, k, cache_docs, result)
-    _semantic_put(query, k, cache_docs, result)
+    cache.set_answer(eff, k, cache_docs, result)
+    _semantic_put(eff, k, cache_docs, result)
+    _record_turn(session_id, query, result["answer"])
     yield ("done", {**result, "cached": False})
