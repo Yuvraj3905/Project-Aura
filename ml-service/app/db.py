@@ -3,6 +3,7 @@ from contextlib import contextmanager
 
 import psycopg
 from pgvector.psycopg import register_vector
+from psycopg.types.json import Json
 
 from .config import settings
 
@@ -166,6 +167,43 @@ def update_order_status(conn, order_id: str, status: str) -> bool:
         (status, order_id),
     ).fetchone()
     return row is not None
+
+
+def semantic_cache_lookup(conn, query_embedding, scope_key: str, threshold: float):
+    """Return a cached answer dict for the nearest prior query in the same scope, if its
+    cosine similarity clears `threshold`; else None.
+
+    Embeddings are normalized, so `1 - (query_embedding <=> q)` is cosine similarity.
+    """
+    row = conn.execute(
+        """
+        SELECT answer, 1 - (query_embedding <=> %s) AS sim
+          FROM answer_cache_semantic
+         WHERE scope_key = %s
+         ORDER BY query_embedding <=> %s
+         LIMIT 1
+        """,
+        (query_embedding, scope_key, query_embedding),
+    ).fetchone()
+    if row is None or row[1] < threshold:
+        return None
+    return row[0]
+
+
+def semantic_cache_insert(conn, query: str, query_embedding, scope_key: str, answer: dict) -> None:
+    """Store an answered query so future near-duplicate queries can reuse the answer."""
+    conn.execute(
+        """
+        INSERT INTO answer_cache_semantic (query, query_embedding, scope_key, answer)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (query, query_embedding, scope_key, Json(answer)),
+    )
+
+
+def truncate_semantic_cache(conn) -> None:
+    """Drop all semantic-cache rows (a new document can change correct answers)."""
+    conn.execute("TRUNCATE answer_cache_semantic")
 
 
 def fetch_document(conn, document_id: str) -> dict:

@@ -8,12 +8,19 @@ Two entry points share the same retrieval + guardrail + prompt:
   - answer_query: blocking, returns the full result dict (Redis-cached).
   - answer_stream: generator yielding ("token", text) then ("done", result) for SSE.
 """
+import logging
 from typing import Iterator
+
+import numpy as np
 
 from .. import cache, usage
 from ..config import settings
+from ..db import get_conn, semantic_cache_insert, semantic_cache_lookup
+from ..embeddings import embed_query
 from ..llm import generate_full, generate_stream
 from .retrieve import retrieve
+
+log = logging.getLogger("aura.answer")
 
 SYSTEM_PROMPT = (
     "You are Aura, an upbeat, persuasive B2B sales agent who loves the product and is "
@@ -25,7 +32,9 @@ SYSTEM_PROMPT = (
     "Ground every spec, number, and claim ONLY in the facts you are given — never invent "
     "specs, prices, features, or availability — but present those facts with energy, "
     "highlight the benefits to the customer, and nudge them toward buying (suggest a model, "
-    "invite the next step). Keep it concise."
+    "invite the next step). Keep it concise. "
+    "Format your reply in markdown: **bold** the key specs and model names, and use bullet "
+    "lists when comparing options or listing features, so it's easy to skim."
 )
 
 # Salesy deflection when retrieval is too weak — stays honest (no invented facts) but keeps
@@ -56,6 +65,42 @@ def _build_prompt(query: str, chunks: list[dict]) -> str:
         "Reply as the eager sales agent — use only the product information above for any "
         "facts, but never mention 'context', 'documents', or where the info came from."
     )
+
+
+def _semantic_scope_key(k: int, document_ids: list[str] | None) -> str:
+    """Cache partition key — same dimensions the exact Redis answer cache keys on, so a
+    semantic hit can never cross a document scope."""
+    docs = ",".join(sorted(set(document_ids))) if document_ids else "*"
+    return f"{k}:{docs}"
+
+
+def _semantic_get(query: str, k: int, document_ids: list[str] | None) -> dict | None:
+    """Best-effort semantic-cache read. Returns a cached result dict or None."""
+    if not settings.semantic_cache:
+        return None
+    try:
+        q = np.asarray(embed_query(query), dtype=np.float32)
+        with get_conn() as conn:
+            return semantic_cache_lookup(
+                conn, q, _semantic_scope_key(k, document_ids),
+                settings.semantic_cache_threshold,
+            )
+    except Exception as exc:  # noqa: BLE001 — cache must never break answering
+        log.warning("semantic cache lookup failed: %s", exc)
+        return None
+
+
+def _semantic_put(query: str, k: int, document_ids: list[str] | None, result: dict) -> None:
+    """Best-effort semantic-cache write of a freshly generated answer."""
+    if not settings.semantic_cache:
+        return
+    try:
+        q = np.asarray(embed_query(query), dtype=np.float32)
+        with get_conn() as conn:
+            semantic_cache_insert(conn, query, q, _semantic_scope_key(k, document_ids), result)
+            conn.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("semantic cache insert failed: %s", exc)
 
 
 def _resolve_chunks(
@@ -151,6 +196,12 @@ def answer_query(
         _record_cache_hit(cached)
         return {**cached, "cached": True}
 
+    # Fuzzy reuse: a paraphrase of a prior question in the same scope.
+    sem = _semantic_get(query, k, cache_docs)
+    if sem is not None:
+        _record_cache_hit(sem)
+        return {**sem, "cached": True}
+
     chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
@@ -168,6 +219,7 @@ def answer_query(
         }
 
     cache.set_answer(query, k, cache_docs, result)
+    _semantic_put(query, k, cache_docs, result)
     return {**result, "cached": False}
 
 
@@ -193,6 +245,13 @@ def answer_stream(
         yield ("done", {**cached, "cached": True})
         return
 
+    sem = _semantic_get(query, k, cache_docs)
+    if sem is not None:
+        _record_cache_hit(sem)
+        yield ("token", sem["answer"])
+        yield ("done", {**sem, "cached": True})
+        return
+
     chunks, scope_to_save = _resolve_chunks(query, k, document_ids, session_id)
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
@@ -201,6 +260,7 @@ def answer_stream(
         result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
         cache.set_answer(query, k, cache_docs, result)
+        _semantic_put(query, k, cache_docs, result)
         yield ("token", NO_ANSWER)
         yield ("done", {**result, "cached": False})
         return
@@ -222,4 +282,5 @@ def answer_stream(
         "completion_tokens": tokens.get("completion_tokens", 0),
     }
     cache.set_answer(query, k, cache_docs, result)
+    _semantic_put(query, k, cache_docs, result)
     yield ("done", {**result, "cached": False})
