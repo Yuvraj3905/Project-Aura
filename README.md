@@ -306,6 +306,16 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 | `CHUNK_OVERLAP` | 64 | Tokens shared between adjacent chunks |
 | `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt (fewer = faster) |
 | `RETRIEVAL_MIN_SCORE` | 0.45 | Cosine floor — below this, the LLM is **not** called (anti-hallucination guard) |
+| `HYBRID_RETRIEVAL` | true | Fuse lexical (BM25-like) + vector results via RRF |
+| `HYBRID_CANDIDATES` | 20 | Top-N from each arm before fusion |
+| `MMR_DEDUPE` | true | Drop near-duplicate chunks from the fused list |
+| `MMR_DUP_THRESHOLD` | 0.97 | Cosine above which two chunks count as duplicates |
+| `SEMANTIC_CACHE` | true | Reuse a prior answer for a near-identical query embedding |
+| `SEMANTIC_CACHE_THRESHOLD` | 0.92 | Cosine floor to reuse (paraphrases ~0.94, different questions ~0.69) |
+| `QUERY_REWRITE` | true | Rewrite conversational follow-ups into standalone questions before retrieval |
+| `QUERY_REWRITE_MAX_TURNS` | 3 | Recent (q,a) turns kept per session for rewrite context |
+| `VARIANT_GUARD` | true | Refuse (don't invent) when a query names a model variant absent from all retrieved chunks |
+| `ANSWER_SINGLE_DOC` | true | On an unscoped query, answer only from the top-matching document (no cross-doc blending) |
 | `OLLAMA_MODEL` | `llama3:8b` | Local LLM; use `llama3.2:3b` for speed |
 | `OLLAMA_NUM_CTX` | 4096 | Context window (must hold prompt + chunks; bigger = slower) |
 | `OLLAMA_NUM_PREDICT` | 512 | Max generated tokens per answer |
@@ -325,8 +335,23 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
   weak). `open_ticket` → `ticket_form` collects email + description → ml-service
   `/tickets`. `buy_order` → `order_form` (product + email) → `/orders`;
   `request_contact` → `lead_form` (name + email) → `/leads` — the sales funnel.
-- **Cache:** query embeddings (24h) and grounded answers (1h) are cached in Redis;
-  the answer cache is flushed whenever a new document becomes ready.
+- **Follow-up rewriting:** a conversational follow-up ("what is **its** battery") is
+  rewritten into a standalone question using the session's recent turns before retrieval,
+  so pronouns resolve to the right subject ("…battery of the Galaxy Watch 8 Classic"). Only
+  likely follow-ups (pronouns / very short messages) trigger the extra step; standalone
+  questions skip it. Recent turns are kept per session in Redis (disposed on **New chat**).
+  Disable with `QUERY_REWRITE=false`.
+- **Retrieval:** hybrid by default — a lexical (Postgres full-text/BM25-like) search and
+  the vector search each return candidates, fused with Reciprocal Rank Fusion, then
+  de-duplicated (MMR). Catches exact-term matches a pure vector search misses. Every chunk
+  keeps its cosine score, so the anti-hallucination guard is unchanged. Disable with
+  `HYBRID_RETRIEVAL=false`.
+- **Cache:** query embeddings (24h) and grounded answers (1h) are cached in Redis (exact
+  match); the answer cache is flushed whenever a new document becomes ready. A **semantic
+  answer cache** (pgvector) additionally reuses a prior answer when a new query embeds
+  within `SEMANTIC_CACHE_THRESHOLD` cosine of an earlier one *in the same doc-scope* — so
+  paraphrases ("how big is the screen" ≈ "display size") return instantly instead of
+  re-running the LLM. Disable with `SEMANTIC_CACHE=false`.
 
 ## ml-service
 
@@ -367,4 +392,10 @@ non-zero on failure, so they double as regression checks:
 ```bash
 python3 scripts/storyline_test.py   # sales persona, sticky doc-scope, no cross-doc bleed (LLM — slow)
 python3 scripts/funnel_test.py       # order + lead capture flows, bad-email rejection (Rasa forms — fast)
+python3 scripts/phase2_test.py       # hybrid retrieval + semantic-cache paraphrase reuse (LLM — slow)
+python3 scripts/rewrite_test.py      # conversational follow-up ("its battery") resolution (LLM — slow)
 ```
+
+Phase 2 retrieval-quality test results (API + UI) are logged in
+`scripts/phase2_results.md` (with `scripts/phase2_ui_markdown.png` showing rendered
+markdown answers).

@@ -55,5 +55,38 @@ class Settings(BaseSettings):
     # hijacking the conversation, while a genuine topic change still re-locks.
     retrieval_relock_score: float = 0.60
 
+    # --- Phase 2: hybrid retrieval + semantic cache ---
+    # Hybrid: fuse lexical (Postgres full-text/BM25-like) with vector results via
+    # Reciprocal Rank Fusion. Catches exact-term matches a pure vector search misses.
+    hybrid_retrieval: bool = True
+    hybrid_candidates: int = 20          # top-N from each arm before fusion
+    rrf_k: int = 60                      # RRF constant (standard default)
+    # MMR: drop near-duplicate chunks from the fused top list so the prompt gets diverse
+    # context instead of three paraphrases of the same sentence.
+    mmr_dedupe: bool = True
+    mmr_dup_threshold: float = 0.97      # cosine between chunks above this = duplicate
+    # Semantic answer cache: reuse a prior answer when a new query embeds close to it.
+    semantic_cache: bool = True
+    # Cosine floor for reusing a prior answer. Measured on bge-small: real paraphrases of
+    # the same question land ~0.94, genuinely different questions ~0.69 — so 0.92 catches
+    # rewordings with a wide margin before any risk of reusing an unrelated answer.
+    semantic_cache_threshold: float = 0.92
+
+    # --- Query rewriting (conversation-aware follow-ups) ---
+    # Resolve anaphora ("what is its battery" -> "Galaxy Watch 8 Classic battery") by
+    # rewriting a follow-up into a standalone question using recent turns before retrieval.
+    # Gated to likely follow-ups (pronouns / very short), so standalone questions skip the
+    # extra LLM call.
+    query_rewrite: bool = True
+    query_rewrite_max_turns: int = 3   # recent (q,a) turns kept per session for context
+
+    # --- Anti-hallucination + answer scoping ---
+    # If a query names a product variant qualifier (e.g. "ultra") that appears in NO
+    # retrieved chunk, refuse instead of letting the LLM invent that model's specs.
+    variant_guard: bool = True
+    # Answer only from the single best-matching document on an unscoped query, so unrelated
+    # documents in a mixed knowledge base can't bleed into the answer.
+    answer_single_doc: bool = True
+
 
 settings = Settings()

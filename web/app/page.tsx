@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
+// Render Aura's answers as markdown (bold specs, bullet lists) without the big default
+// block margins that look wrong inside a chat bubble.
+const MD_COMPONENTS = {
+  p: (props: { children?: React.ReactNode }) => <p style={{ margin: "0 0 6px" }}>{props.children}</p>,
+  ul: (props: { children?: React.ReactNode }) => <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{props.children}</ul>,
+  ol: (props: { children?: React.ReactNode }) => <ol style={{ margin: "4px 0", paddingLeft: 18 }}>{props.children}</ol>,
+  li: (props: { children?: React.ReactNode }) => <li style={{ margin: "2px 0" }}>{props.children}</li>,
+};
 
 interface Doc {
   id: string;
@@ -234,11 +245,18 @@ export default function Home() {
                   display: "inline-block",
                   padding: "6px 10px",
                   borderRadius: 10,
+                  textAlign: "left",
                   background: m.role === "user" ? "#e7f0ff" : "#f1f1f1",
-                  whiteSpace: "pre-wrap",
+                  whiteSpace: m.role === "user" ? "pre-wrap" : "normal",
                 }}
               >
-                {m.text || (m.streaming ? "▍" : "")}
+                {m.role === "aura" && m.text ? (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+                    {m.text}
+                  </ReactMarkdown>
+                ) : (
+                  m.text || (m.streaming ? "▍" : "")
+                )}
                 {m.cached && (
                   <em style={{ color: "#1a7f37", fontSize: 11, marginLeft: 6 }}>cached</em>
                 )}

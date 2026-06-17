@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import cache
 from .config import settings
-from .db import fetch_document, get_conn
+from .db import fetch_document, get_conn, truncate_semantic_cache
 from .embeddings import embed_texts, get_model
 from .llm import generate
 from .pipeline.chunk import chunk_text
@@ -73,6 +73,7 @@ def ingest_document(document_id: str) -> int:
             reset_document_chunks(conn, document_id)
             insert_chunks(conn, document_id, rows)
             mark_status(conn, document_id, "ready", summary=summary, n_chunks=len(rows))
+            truncate_semantic_cache(conn)   # a new doc can change correct answers
             conn.commit()
 
         # A new document can change what any query should return — drop cached answers.
