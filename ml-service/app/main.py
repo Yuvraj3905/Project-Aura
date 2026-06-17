@@ -15,13 +15,16 @@ from .db import (
     create_lead,
     create_order,
     create_ticket,
+    documents_missing_product,
     get_conn,
     list_leads,
     list_orders,
     list_tickets,
+    set_document_product,
     update_order_status,
     update_ticket_status,
 )
+from .llm import classify_product
 from .embeddings import embed_texts
 from .ingest import ingest_document
 from .rag.answer import answer_query, answer_stream
@@ -274,6 +277,23 @@ def clear_session_scope(session_id: str) -> dict:
     """
     cache.clear_scope(session_id)
     return {"session_id": session_id, "cleared": True}
+
+
+@app.post("/documents/retag")
+def retag_documents() -> dict:
+    """Backfill product tags for ready documents that don't have one yet (classify from
+    their summary). One-off after migration 0006 / for docs ingested before tagging."""
+    with get_conn() as conn:
+        pending = documents_missing_product(conn)
+    tagged = []
+    for doc in pending:
+        product = classify_product(doc["summary"] or "")
+        if product:
+            with get_conn() as conn:
+                set_document_product(conn, doc["id"], product)
+                conn.commit()
+            tagged.append({"id": doc["id"], "product": product})
+    return {"retagged": tagged, "count": len(tagged)}
 
 
 @app.get("/usage")

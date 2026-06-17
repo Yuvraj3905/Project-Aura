@@ -15,7 +15,12 @@ import numpy as np
 
 from .. import cache, usage
 from ..config import settings
-from ..db import get_conn, semantic_cache_insert, semantic_cache_lookup
+from ..db import (
+    documents_for_product,
+    get_conn,
+    semantic_cache_insert,
+    semantic_cache_lookup,
+)
 from ..embeddings import embed_query
 from ..llm import generate_full, generate_stream
 from .retrieve import retrieve
@@ -202,6 +207,29 @@ def _semantic_put(query: str, k: int, document_ids: list[str] | None, result: di
         log.warning("semantic cache insert failed: %s", exc)
 
 
+def _product_doc_ids(product: str) -> list[str]:
+    """Document ids belonging to a product (own DB connection; [] on error)."""
+    try:
+        with get_conn() as conn:
+            return documents_for_product(conn, product)
+    except Exception as exc:  # noqa: BLE001 — routing must never break answering
+        log.warning("product doc lookup failed: %s", exc)
+        return []
+
+
+def _primary_product_docs() -> list[str] | None:
+    """Doc ids for the configured primary product, or None to search the whole KB.
+
+    Returns None when routing is disabled (no PRIMARY_PRODUCT) OR no document matches it —
+    in the no-match case we fall back to global retrieval rather than an empty filter that
+    would answer nothing.
+    """
+    if not settings.primary_product:
+        return None
+    ids = _product_doc_ids(settings.primary_product)
+    return ids or None
+
+
 def _resolve_chunks(
     query: str,
     k: int,
@@ -224,9 +252,12 @@ def _resolve_chunks(
     if document_ids:
         return retrieve(query, k, document_ids), None
 
+    # Unscoped: route to the deployment's primary product (None = whole KB).
+    base = _primary_product_docs()
+
     stored = cache.get_scope(session_id) if session_id else None
     if not stored:
-        chunks = retrieve(query, k, None)
+        chunks = retrieve(query, k, base)
         if session_id and is_grounded(chunks, settings.retrieval_min_score):
             return chunks, _lock_docs(chunks)
         return chunks, None
@@ -235,9 +266,9 @@ def _resolve_chunks(
     if is_grounded(scoped, settings.retrieval_min_score):
         return scoped, None
 
-    global_chunks = retrieve(query, k, None)
-    if is_grounded(global_chunks, settings.retrieval_relock_score):
-        return global_chunks, _lock_docs(global_chunks)
+    broader = retrieve(query, k, base)
+    if is_grounded(broader, settings.retrieval_relock_score):
+        return broader, _lock_docs(broader)
     return scoped, None
 
 

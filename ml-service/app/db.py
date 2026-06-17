@@ -206,6 +206,31 @@ def truncate_semantic_cache(conn) -> None:
     conn.execute("TRUNCATE answer_cache_semantic")
 
 
+def documents_for_product(conn, product: str) -> list[str]:
+    """READY document ids whose product matches `product` (case-insensitive substring)."""
+    rows = conn.execute(
+        "SELECT id FROM documents WHERE status = 'ready' AND product ILIKE %s",
+        (f"%{product}%",),
+    ).fetchall()
+    return [str(r[0]) for r in rows]
+
+
+def set_document_product(conn, document_id: str, product: str) -> None:
+    """Set a document's product tag."""
+    conn.execute(
+        "UPDATE documents SET product = %s WHERE id = %s",
+        (product, document_id),
+    )
+
+
+def documents_missing_product(conn) -> list[dict]:
+    """READY documents with no product tag yet (for backfill): [{id, summary}]."""
+    rows = conn.execute(
+        "SELECT id, summary FROM documents WHERE status = 'ready' AND product IS NULL",
+    ).fetchall()
+    return [{"id": str(r[0]), "summary": r[1]} for r in rows]
+
+
 def fetch_document(conn, document_id: str) -> dict:
     """Return {filename, storage_path, mime_type} for a document, or raise if missing."""
     row = conn.execute(

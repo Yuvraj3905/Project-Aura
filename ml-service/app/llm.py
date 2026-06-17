@@ -89,6 +89,27 @@ def generate(prompt: str, system: str | None = None, kind: str = "summarize") ->
     return generate_full(prompt, system, kind)["text"]
 
 
+CLASSIFY_SYSTEM = (
+    "You label a document with the single product it is about. Reply with ONLY the product "
+    "name in 2-4 words (e.g. 'Samsung Galaxy Watch', 'News CMS Platform'). No punctuation, "
+    "no explanation."
+)
+
+
+def classify_product(summary: str) -> str:
+    """Classify a document into a short product label from its summary. Best-effort:
+    returns "" if the model is unreachable, so ingestion never fails on tagging."""
+    try:
+        text = generate(
+            f"Document summary:\n{summary}\n\nProduct name:",
+            system=CLASSIFY_SYSTEM,
+            kind="classify",
+        )
+        return text.strip().strip('"').splitlines()[0][:60] if text.strip() else ""
+    except Exception:  # noqa: BLE001 — tagging is optional, never block ingest
+        return ""
+
+
 def generate_stream(
     prompt: str,
     system: str | None = None,
