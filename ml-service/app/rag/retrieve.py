@@ -55,6 +55,20 @@ def mmr_dedupe(chunks: list[dict], threshold: float) -> list[dict]:
     return kept
 
 
+def dominant_doc_filter(chunks: list[dict]) -> list[dict]:
+    """Keep only chunks from the single best-matching document.
+
+    On an unscoped query against a mixed knowledge base, a tangential chunk from an
+    unrelated document can otherwise bleed into the answer (e.g. a news-CMS doc surfacing
+    on "what have you got"). Restricting to the top-scoring document's chunks keeps the
+    answer on one product. Order is preserved.
+    """
+    if not chunks:
+        return []
+    top_doc = max(chunks, key=lambda c: c["score"])["document_id"]
+    return [c for c in chunks if c["document_id"] == top_doc]
+
+
 def _strip_embeddings(chunks: list[dict]) -> list[dict]:
     """Drop the internal `embedding` field before returning to callers."""
     for c in chunks:
@@ -139,13 +153,18 @@ def retrieve(
 
     with get_conn() as conn:
         if not settings.hybrid_retrieval:
-            return _strip_embeddings(_vector_candidates(conn, q, document_ids, k))
+            chunks = _vector_candidates(conn, q, document_ids, k)
+        else:
+            n = settings.hybrid_candidates
+            vec = _vector_candidates(conn, q, document_ids, n)
+            lex = _lexical_candidates(conn, q, query, document_ids, n)
+            fused = rrf_fuse([vec, lex], k=settings.rrf_k,
+                             limit=k * 2 if settings.mmr_dedupe else k)
+            if settings.mmr_dedupe:
+                fused = mmr_dedupe(fused, settings.mmr_dup_threshold)
+            chunks = fused[:k]
 
-        n = settings.hybrid_candidates
-        vec = _vector_candidates(conn, q, document_ids, n)
-        lex = _lexical_candidates(conn, q, query, document_ids, n)
-
-    fused = rrf_fuse([vec, lex], k=settings.rrf_k, limit=k * 2 if settings.mmr_dedupe else k)
-    if settings.mmr_dedupe:
-        fused = mmr_dedupe(fused, settings.mmr_dup_threshold)[:k]
-    return _strip_embeddings(fused[:k])
+    # Unscoped query against a mixed KB: keep the answer to the top-matching document.
+    if document_ids is None and settings.answer_single_doc:
+        chunks = dominant_doc_filter(chunks)
+    return _strip_embeddings(chunks[:k])

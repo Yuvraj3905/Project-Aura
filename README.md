@@ -314,6 +314,8 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 | `SEMANTIC_CACHE_THRESHOLD` | 0.92 | Cosine floor to reuse (paraphrases ~0.94, different questions ~0.69) |
 | `QUERY_REWRITE` | true | Rewrite conversational follow-ups into standalone questions before retrieval |
 | `QUERY_REWRITE_MAX_TURNS` | 3 | Recent (q,a) turns kept per session for rewrite context |
+| `VARIANT_GUARD` | true | Refuse (don't invent) when a query names a model variant absent from all retrieved chunks |
+| `ANSWER_SINGLE_DOC` | true | On an unscoped query, answer only from the top-matching document (no cross-doc blending) |
 | `OLLAMA_MODEL` | `llama3:8b` | Local LLM; use `llama3.2:3b` for speed |
 | `OLLAMA_NUM_CTX` | 4096 | Context window (must hold prompt + chunks; bigger = slower) |
 | `OLLAMA_NUM_PREDICT` | 512 | Max generated tokens per answer |

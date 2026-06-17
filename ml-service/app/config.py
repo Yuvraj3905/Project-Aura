@@ -80,5 +80,13 @@ class Settings(BaseSettings):
     query_rewrite: bool = True
     query_rewrite_max_turns: int = 3   # recent (q,a) turns kept per session for context
 
+    # --- Anti-hallucination + answer scoping ---
+    # If a query names a product variant qualifier (e.g. "ultra") that appears in NO
+    # retrieved chunk, refuse instead of letting the LLM invent that model's specs.
+    variant_guard: bool = True
+    # Answer only from the single best-matching document on an unscoped query, so unrelated
+    # documents in a mixed knowledge base can't bleed into the answer.
+    answer_single_doc: bool = True
+
 
 settings = Settings()

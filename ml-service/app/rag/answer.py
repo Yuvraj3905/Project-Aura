@@ -30,7 +30,9 @@ SYSTEM_PROMPT = (
     "context', 'the document says', or 'in the knowledge base' — just answer directly and "
     "confidently as if you know the product inside-out. "
     "Ground every spec, number, and claim ONLY in the facts you are given — never invent "
-    "specs, prices, features, or availability — but present those facts with energy, "
+    "specs, prices, features, or availability. If the customer asks about a specific model "
+    "or variant that is NOT in the context, do NOT invent it — say you don't carry that "
+    "model and offer the ones you do. Present the real facts with energy, "
     "highlight the benefits to the customer, and nudge them toward buying (suggest a model, "
     "invite the next step). Keep it concise. "
     "Format your reply in markdown: **bold** the key specs and model names, and use bullet "
@@ -44,6 +46,44 @@ NO_ANSWER = (
     "love to track them down for you. In the meantime, is there another model or feature I "
     "can walk you through to help you find the perfect fit?"
 )
+
+# Returned when the user names a product variant we have no information on — refuse instead
+# of inventing its specs.
+VARIANT_NO_MATCH = (
+    "Hmm, I don't have that exact model in our lineup right now — and I'd never want to "
+    "guess at specs. I'd love to walk you through the models we do carry, though. Which one "
+    "can I tell you about?"
+)
+
+# Variant qualifiers that, if named in a query but absent from every retrieved chunk, mean
+# the user is asking about a model we don't have (e.g. an invented "Watch 8 Ultra").
+_VARIANT_QUALIFIERS = {
+    "ultra", "pro", "max", "plus", "mini", "lite", "ultimate", "fe", "edge",
+}
+
+
+def _refusal(query: str, chunks: list[dict]) -> str | None:
+    """Decide whether to refuse rather than generate: VARIANT_NO_MATCH for an invented
+    model, NO_ANSWER for weak retrieval, else None (proceed to the LLM)."""
+    if settings.variant_guard and _unsupported_variant(query, chunks):
+        return VARIANT_NO_MATCH
+    if not is_grounded(chunks, settings.retrieval_min_score):
+        return NO_ANSWER
+    return None
+
+
+def _unsupported_variant(query: str, chunks: list[dict]) -> str | None:
+    """Return a variant qualifier named in the query that appears in NO retrieved chunk,
+    else None. Guards against the LLM inventing specs for a model we don't carry."""
+    words = {w.strip("?.,!'\"").lower() for w in query.split()}
+    named = words & _VARIANT_QUALIFIERS
+    if not named:
+        return None
+    context = " ".join(c["content"] for c in chunks).lower()
+    for term in named:
+        if term not in context:
+            return term
+    return None
 
 
 def is_grounded(chunks: list[dict], min_score: float) -> bool:
@@ -271,9 +311,10 @@ def answer_query(
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
         cache_docs = scope_to_save
-    if not is_grounded(chunks, settings.retrieval_min_score):
-        # Guardrail: off-knowledge-base query. No model call, no tokens.
-        result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
+    refusal = _refusal(eff, chunks)
+    if refusal is not None:
+        # Guardrail (off-KB) or variant guard (model we don't carry): no model call.
+        result = {"answer": refusal, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
     else:
         gen = generate_full(_build_prompt(eff, chunks), system=SYSTEM_PROMPT, kind="answer")
@@ -326,13 +367,14 @@ def answer_stream(
     if scope_to_save:
         cache.set_scope(session_id, scope_to_save)
         cache_docs = scope_to_save
-    if not is_grounded(chunks, settings.retrieval_min_score):
-        result = {"answer": NO_ANSWER, "grounded": False, "citations": [],
+    refusal = _refusal(eff, chunks)
+    if refusal is not None:
+        result = {"answer": refusal, "grounded": False, "citations": [],
                   "prompt_tokens": 0, "completion_tokens": 0}
         cache.set_answer(eff, k, cache_docs, result)
         _semantic_put(eff, k, cache_docs, result)
-        _record_turn(session_id, query, NO_ANSWER)
-        yield ("token", NO_ANSWER)
+        _record_turn(session_id, query, refusal)
+        yield ("token", refusal)
         yield ("done", {**result, "cached": False})
         return
 
