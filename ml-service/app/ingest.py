@@ -8,9 +8,9 @@ from pathlib import Path
 
 from . import cache
 from .config import settings
-from .db import fetch_document, get_conn, truncate_semantic_cache
+from .db import fetch_document, get_conn, set_document_product, truncate_semantic_cache
 from .embeddings import embed_texts, get_model
-from .llm import generate
+from .llm import classify_product, generate
 from .pipeline.chunk import chunk_text
 from .pipeline.extract import extract_text
 from .pipeline.store import insert_chunks, mark_status, reset_document_chunks
@@ -69,10 +69,15 @@ def ingest_document(document_id: str) -> int:
             )
         ]
 
+        # Tag the document with its product so unscoped queries can route by product.
+        product = classify_product(summary)
+
         with get_conn() as conn:
             reset_document_chunks(conn, document_id)
             insert_chunks(conn, document_id, rows)
             mark_status(conn, document_id, "ready", summary=summary, n_chunks=len(rows))
+            if product:
+                set_document_product(conn, document_id, product)
             truncate_semantic_cache(conn)   # a new doc can change correct answers
             conn.commit()
 

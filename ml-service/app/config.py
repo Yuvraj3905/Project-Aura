@@ -88,5 +88,11 @@ class Settings(BaseSettings):
     # documents in a mixed knowledge base can't bleed into the answer.
     answer_single_doc: bool = True
 
+    # --- Per-product routing ---
+    # Restrict unscoped queries to documents of this product (matched case-insensitively as
+    # a substring of documents.product). Empty = disabled (search the whole KB). Documents
+    # are auto-tagged with a product at ingest.
+    primary_product: str = ""
+
 
 settings = Settings()

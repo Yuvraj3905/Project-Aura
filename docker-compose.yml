@@ -28,6 +28,7 @@ services:
       - ./db/migrations/0003_llm_usage.sql:/docker-entrypoint-initdb.d/03_llm_usage.sql:ro
       - ./db/migrations/0004_leads_orders.sql:/docker-entrypoint-initdb.d/04_leads_orders.sql:ro
       - ./db/migrations/0005_hybrid_semantic.sql:/docker-entrypoint-initdb.d/05_hybrid_semantic.sql:ro
+      - ./db/migrations/0006_document_product.sql:/docker-entrypoint-initdb.d/06_document_product.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
       interval: 5s
@@ -95,6 +96,8 @@ services:
       OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
       RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-5}
       RETRIEVAL_MIN_SCORE: ${RETRIEVAL_MIN_SCORE:-0.45}
+      # Per-product routing: restrict unscoped queries to docs of this product (empty = off).
+      PRIMARY_PRODUCT: ${PRIMARY_PRODUCT:-}
     volumes:
       # Shared upload volume: web/worker write here, ml-service reads by path.
       - ./data:/data

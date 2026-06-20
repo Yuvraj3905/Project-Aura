@@ -316,6 +316,7 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 | `QUERY_REWRITE_MAX_TURNS` | 3 | Recent (q,a) turns kept per session for rewrite context |
 | `VARIANT_GUARD` | true | Refuse (don't invent) when a query names a model variant absent from all retrieved chunks |
 | `ANSWER_SINGLE_DOC` | true | On an unscoped query, answer only from the top-matching document (no cross-doc blending) |
+| `PRIMARY_PRODUCT` | `""` | Restrict unscoped queries to documents of this product (substring of the auto-assigned `documents.product`); empty = whole KB |
 | `OLLAMA_MODEL` | `llama3:8b` | Local LLM; use `llama3.2:3b` for speed |
 | `OLLAMA_NUM_CTX` | 4096 | Context window (must hold prompt + chunks; bigger = slower) |
 | `OLLAMA_NUM_PREDICT` | 512 | Max generated tokens per answer |
@@ -335,6 +336,11 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
   weak). `open_ticket` → `ticket_form` collects email + description → ml-service
   `/tickets`. `buy_order` → `order_form` (product + email) → `/orders`;
   `request_contact` → `lead_form` (name + email) → `/leads` — the sales funnel.
+- **Per-product routing:** each document is auto-tagged with a product at ingest. When
+  `PRIMARY_PRODUCT` is set, unscoped queries are restricted to that product's documents, so
+  a generic opener ("what have you got") answers the deployment's product and never an
+  unrelated document in a mixed knowledge base. `POST /documents/retag` backfills tags for
+  older documents.
 - **Follow-up rewriting:** a conversational follow-up ("what is **its** battery") is
   rewritten into a standalone question using the session's recent turns before retrieval,
   so pronouns resolve to the right subject ("…battery of the Galaxy Watch 8 Classic"). Only
@@ -359,7 +365,7 @@ Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-d
 L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
 `POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `POST /tickets`,
 `GET /tickets`, `PATCH /tickets/{id}`, `POST /leads`, `GET /leads`, `POST /orders`,
-`GET /orders`, `PATCH /orders/{id}`, `GET /usage`.
+`GET /orders`, `PATCH /orders/{id}`, `POST /documents/retag`, `GET /usage`.
 
 `/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
 retrieval to a subset) plus an optional `session_id` (enables the per-session sticky
