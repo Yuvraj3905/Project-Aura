@@ -22,6 +22,9 @@ def setup_fakes(monkeypatch, by_filter):
                         lambda q, k=None, document_ids=None: by_filter[tuple(document_ids) if document_ids else None])
     monkeypatch.setattr(cache, "get_scope", lambda sid: scopes.get(sid))
     monkeypatch.setattr(cache, "set_scope", lambda sid, ids: scopes.__setitem__(sid, sorted(set(ids))))
+    # Phase 3 added _primary_product_docs() to the unscoped path; mock it so the
+    # mock's by_filter[None] key matches (real env may return actual doc IDs → KeyError).
+    monkeypatch.setattr(answer_mod, "_primary_product_docs", lambda: None)
     return scopes
 
 
