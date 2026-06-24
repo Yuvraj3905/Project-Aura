@@ -20,6 +20,7 @@ run "pytest"   "docker compose run --rm --no-deps -v \"\$(pwd)/ml-service/tests:
 run "funnel"   "python3 scripts/funnel_test.py"
 run "phase2"   "python3 scripts/phase2_test.py"
 run "rewrite"  "python3 scripts/rewrite_test.py"
+(( fast )) || run "comparison" "python3 scripts/comparison_test.py"
 (( fast )) || run "storyline" "python3 scripts/storyline_test.py"
 
 echo -e "\n===================== EVAL SUMMARY ====================="
