@@ -274,7 +274,9 @@ docker compose down -v && rm -rf data/
 
 ### Speed
 
-Answer latency on CPU is dominated by the local model. Biggest levers, in order:
+Answer latency on CPU is dominated by the local model (retrieval is ~50 ms; generation is
+50–130 s). The shipped defaults are already CPU-tuned (`OLLAMA_NUM_CTX=2048`,
+`OLLAMA_NUM_PREDICT=256`, `RETRIEVAL_TOP_K=4`). Biggest levers, in order:
 
 1. **Use a smaller model** — the single biggest win. Pull a 3B model and point Aura at it:
    ```bash
@@ -304,7 +306,7 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 |-----|---------|--------|
 | `CHUNK_TOKENS` | 512 | Chunk size before the summary prefix |
 | `CHUNK_OVERLAP` | 64 | Tokens shared between adjacent chunks |
-| `RETRIEVAL_TOP_K` | 5 | How many chunks feed the grounded prompt (fewer = faster) |
+| `RETRIEVAL_TOP_K` | 4 | How many chunks feed the grounded prompt (fewer = faster). 3 drops a follow-up's needed chunk; 4 is the floor that fits the 2048 context |
 | `RETRIEVAL_MIN_SCORE` | 0.45 | Cosine floor — below this, the LLM is **not** called (anti-hallucination guard) |
 | `HYBRID_RETRIEVAL` | true | Fuse lexical (BM25-like) + vector results via RRF |
 | `HYBRID_CANDIDATES` | 20 | Top-N from each arm before fusion |
@@ -318,8 +320,8 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 | `ANSWER_SINGLE_DOC` | true | On an unscoped query, answer only from the top-matching document (no cross-doc blending) |
 | `PRIMARY_PRODUCT` | `""` | Restrict unscoped queries to documents of this product (substring of the auto-assigned `documents.product`); empty = whole KB |
 | `OLLAMA_MODEL` | `llama3:8b` | Local LLM; use `llama3.2:3b` for speed |
-| `OLLAMA_NUM_CTX` | 4096 | Context window (must hold prompt + chunks; bigger = slower) |
-| `OLLAMA_NUM_PREDICT` | 512 | Max generated tokens per answer |
+| `OLLAMA_NUM_CTX` | 2048 | Context window (must hold prompt + chunks; bigger = slower). Tuned down from 4096 for CPU — halves prompt-eval work |
+| `OLLAMA_NUM_PREDICT` | 256 | Max generated tokens per answer (tuned down from 512) |
 | `OLLAMA_KEEP_ALIVE` | 30m | How long the model stays resident in RAM |
 | `REDIS_URL` | `redis://redis:6379/0` | Cache backend; empty string disables caching (service still works) |
 | `OPENAI_PRICE_GPT_4O` etc. | `2.50,10.00` | ChatGPT prices ($/1M in,out) for the cost-comparison panel |
@@ -396,12 +398,22 @@ Two Python scripts drive the live stack (`:3100`) and assert on behavior — bot
 non-zero on failure, so they double as regression checks:
 
 ```bash
-python3 scripts/storyline_test.py   # sales persona, sticky doc-scope, no cross-doc bleed (LLM — slow)
-python3 scripts/funnel_test.py       # order + lead capture flows, bad-email rejection (Rasa forms — fast)
-python3 scripts/phase2_test.py       # hybrid retrieval + semantic-cache paraphrase reuse (LLM — slow)
-python3 scripts/rewrite_test.py      # conversational follow-up ("its battery") resolution (LLM — slow)
+python3 scripts/storyline_test.py    # sales persona, sticky doc-scope, no cross-doc bleed (LLM — slow)
+python3 scripts/funnel_test.py        # order + lead capture flows, bad-email rejection (Rasa forms — fast)
+python3 scripts/phase2_test.py        # hybrid retrieval + semantic-cache paraphrase reuse (LLM — slow)
+python3 scripts/rewrite_test.py       # conversational follow-up ("its battery") resolution (LLM — slow)
+python3 scripts/comparison_test.py    # "Watch 8 vs Watch 7" stays grounded, covers both products (LLM — slow)
 ```
 
-Phase 2 retrieval-quality test results (API + UI) are logged in
-`scripts/phase2_results.md` (with `scripts/phase2_ui_markdown.png` showing rendered
-markdown answers).
+**Eval harness — one command runs them all and gates on exit codes:**
+
+```bash
+scripts/run_evals.sh          # pytest + funnel + phase2 + rewrite + comparison + storyline
+scripts/run_evals.sh --fast   # skip the slow LLM scripts (storyline, comparison)
+```
+
+A passing run = no regression; the assertion scripts encode the quality bars (persona,
+grounding, no cross-doc bleed, spec correctness, follow-up resolution, comparison coverage).
+pytest runs in-container with `app/` + `tests/` bind-mounted, so it picks up local edits
+without a rebuild. Phase 2 retrieval-quality results (API + UI) are logged in
+`scripts/phase2_results.md` (with `scripts/phase2_ui_markdown.png`).
