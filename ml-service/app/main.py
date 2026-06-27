@@ -16,6 +16,7 @@ from .db import (
     create_order,
     create_ticket,
     documents_missing_product,
+    fetch_chunk,
     get_conn,
     list_leads,
     list_orders,
@@ -294,6 +295,17 @@ def retag_documents() -> dict:
                 conn.commit()
             tagged.append({"id": doc["id"], "product": product})
     return {"retagged": tagged, "count": len(tagged)}
+
+
+@app.get("/chunks/{document_id}/{ordinal}")
+def get_chunk(document_id: str, ordinal: int) -> dict:
+    """Return the source text behind a citation, so the UI can let a customer verify a
+    claim against the actual document passage the answer was grounded in."""
+    with get_conn() as conn:
+        chunk = fetch_chunk(conn, document_id, ordinal)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="chunk not found")
+    return chunk
 
 
 @app.get("/usage")

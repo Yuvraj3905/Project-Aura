@@ -19,11 +19,17 @@ interface Doc {
   status: string;
 }
 
+interface Citation {
+  document_id: string;
+  ordinal: number;
+}
+
 interface Msg {
   role: "user" | "aura";
   text: string;
   streaming?: boolean;
   cached?: boolean;
+  citations?: Citation[];
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -39,6 +45,25 @@ export default function Home() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  // Fetched source text behind a citation, keyed "docId:ordinal". "loading" while in flight.
+  const [openSrc, setOpenSrc] = useState<Record<string, { filename: string; content: string } | "loading">>({});
+
+  // Toggle the source passage behind a citation: fetch + show, or collapse if already open.
+  async function toggleSource(documentId: string, ordinal: number) {
+    const key = `${documentId}:${ordinal}`;
+    if (openSrc[key]) {
+      setOpenSrc((p) => { const n = { ...p }; delete n[key]; return n; });
+      return;
+    }
+    setOpenSrc((p) => ({ ...p, [key]: "loading" }));
+    try {
+      const r = await fetch(`/api/chunks/${documentId}/${ordinal}`);
+      const d = r.ok ? await r.json() : { filename: "", content: "(source unavailable)" };
+      setOpenSrc((p) => ({ ...p, [key]: { filename: d.filename ?? "", content: d.content ?? "" } }));
+    } catch {
+      setOpenSrc((p) => ({ ...p, [key]: { filename: "", content: "(source unavailable)" } }));
+    }
+  }
 
   // Live ingestion status over WebSocket.
   useEffect(() => {
@@ -125,11 +150,14 @@ export default function Home() {
           acc += payload.text;
           appendAura({ text: acc });
         } else if (ev === "done") {
-          const cits = (payload.citations ?? []) as { document_id: string; ordinal: number }[];
-          const refs = cits.length
-            ? "\n\nSources: " + cits.map((c) => `doc ${c.document_id.slice(0, 8)}·#${c.ordinal}`).join(", ")
-            : "";
-          appendAura({ text: (payload.answer ?? acc) + refs, streaming: false, cached: payload.cached });
+          // Keep citations structured (not flattened into text) so each renders as a
+          // clickable chip that reveals the source passage it was grounded in.
+          appendAura({
+            text: payload.answer ?? acc,
+            streaming: false,
+            cached: payload.cached,
+            citations: (payload.citations ?? []) as Citation[],
+          });
         } else if (ev === "error") {
           appendAura({ text: "The knowledge engine is unavailable right now.", streaming: false });
         }
@@ -261,6 +289,59 @@ export default function Home() {
                   <em style={{ color: "#1a7f37", fontSize: 11, marginLeft: 6 }}>cached</em>
                 )}
               </span>
+              {m.role === "aura" && m.citations && m.citations.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <div style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>
+                    Sources — click to verify against the document
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {m.citations.map((c, ci) => {
+                      const key = `${c.document_id}:${c.ordinal}`;
+                      const fname =
+                        docs.find((d) => d.id === c.document_id)?.filename ??
+                        `doc ${c.document_id.slice(0, 8)}`;
+                      const isOpen = Boolean(openSrc[key]);
+                      return (
+                        <button
+                          key={ci}
+                          onClick={() => toggleSource(c.document_id, c.ordinal)}
+                          aria-expanded={isOpen}
+                          style={{
+                            fontSize: 11,
+                            padding: "2px 8px",
+                            borderRadius: 12,
+                            border: "1px solid #ccc",
+                            background: isOpen ? "#e2eeed" : "#fff",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {fname} ·#{c.ordinal}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {m.citations.map((c, ci) => {
+                    const src = openSrc[`${c.document_id}:${c.ordinal}`];
+                    if (!src) return null;
+                    return (
+                      <div
+                        key={`src-${ci}`}
+                        style={{
+                          marginTop: 6,
+                          padding: "8px 10px",
+                          background: "#fafafa",
+                          border: "1px solid #eee",
+                          borderRadius: 8,
+                          fontSize: 13,
+                          whiteSpace: "pre-wrap",
+                        }}
+                      >
+                        {src === "loading" ? "Loading source…" : src.content}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           ))}
         </div>

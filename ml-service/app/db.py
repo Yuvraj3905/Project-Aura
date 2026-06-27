@@ -240,3 +240,23 @@ def fetch_document(conn, document_id: str) -> dict:
     if row is None:
         raise ValueError(f"document {document_id} not found")
     return {"filename": row[0], "storage_path": row[1], "mime_type": row[2]}
+
+
+def fetch_chunk(conn, document_id: str, ordinal: int) -> dict | None:
+    """Return the source text behind a citation: {document_id, ordinal, filename, content}.
+
+    `content` is the raw chunk (not the summary-prefixed `contextualized_content`) — that's
+    the actual document text the answer was grounded in, which is what a reader wants to see.
+    None if no such chunk.
+    """
+    row = conn.execute(
+        """
+        SELECT c.content, d.filename
+          FROM chunks c JOIN documents d ON d.id = c.document_id
+         WHERE c.document_id = %s AND c.ordinal = %s
+        """,
+        (document_id, ordinal),
+    ).fetchone()
+    if row is None:
+        return None
+    return {"document_id": document_id, "ordinal": ordinal, "filename": row[1], "content": row[0]}

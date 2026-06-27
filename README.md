@@ -128,7 +128,8 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    (leave all unticked to search everything). Examples that exercise the different
    paths:
    - `does the API support OAuth 2.0 with custom claims` — `tech_query` → grounded
-     answer + `Sources: doc <id>·#<chunk>` line.
+     answer with **clickable source chips** beneath it; click one to reveal the exact
+     document passage the answer was grounded in (fetched via `GET /chunks/{doc}/{ordinal}`).
    - `what is the request timeout limit for the billing service` — same path; cites
      the chunk that mentions the limit.
    - `what is the capital of France` — off-topic; the cosine score falls below the
@@ -278,7 +279,15 @@ Answer latency on CPU is dominated by the local model (retrieval is ~50 ms; gene
 50–130 s). The shipped defaults are already CPU-tuned (`OLLAMA_NUM_CTX=2048`,
 `OLLAMA_NUM_PREDICT=256`, `RETRIEVAL_TOP_K=4`). Biggest levers, in order:
 
-1. **Use a smaller model** — the single biggest win. Pull a 3B model and point Aura at it:
+0. **Run inference on a GPU** — the biggest win of all if you have one. Generation is
+   ~99.9% of answer latency; a CUDA GPU is 10–50× faster than CPU with no code change:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+   ```
+   `docker-compose.gpu.yml` adds an NVIDIA device reservation to `ollama` (requires the
+   NVIDIA Container Toolkit). With a GPU you can switch back to a larger model and raise
+   the context/output caps — the CPU tuning below no longer applies.
+1. **Use a smaller model** — the biggest CPU win. Pull a 3B model and point Aura at it:
    ```bash
    docker compose exec ollama ollama pull llama3.2:3b
    # set OLLAMA_MODEL=llama3.2:3b in .env, then: docker compose up -d ml-service
@@ -290,7 +299,13 @@ Answer latency on CPU is dominated by the local model (retrieval is ~50 ms; gene
    `OLLAMA_NUM_CTX` (context window) bound the work per call.
 4. **Fewer/smaller chunks** — lower `RETRIEVAL_TOP_K` / `CHUNK_TOKENS` to shrink the prompt.
 5. **Cache** — repeat questions return from Redis in ~30 ms regardless of model (see below).
-6. **Streaming** — the UI shows tokens as they generate, so perceived latency ≈ time-to-first-token, not total.
+6. **Pre-warm the cache** — seed common questions at deploy so the first real user gets an
+   instant, 0-token answer (and paraphrases hit the semantic cache):
+   ```bash
+   python3 scripts/prewarm_cache.py                  # built-in FAQ list
+   python3 scripts/prewarm_cache.py my_questions.txt  # one question per line
+   ```
+7. **Streaming** — the UI shows tokens as they generate, so perceived latency ≈ time-to-first-token, not total.
 
 ### LLM usage & cost analytics
 
@@ -365,9 +380,10 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 
 Python/FastAPI. Embeddings via Sentence Transformers (`bge-small-en-v1.5`, 384-dim,
 L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
-`POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `POST /tickets`,
-`GET /tickets`, `PATCH /tickets/{id}`, `POST /leads`, `GET /leads`, `POST /orders`,
-`GET /orders`, `PATCH /orders/{id}`, `POST /documents/retag`, `GET /usage`.
+`POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `GET /chunks/{doc}/{ordinal}`
+(source text behind a citation), `POST /tickets`, `GET /tickets`, `PATCH /tickets/{id}`,
+`POST /leads`, `GET /leads`, `POST /orders`, `GET /orders`, `PATCH /orders/{id}`,
+`POST /documents/retag`, `GET /usage`.
 
 `/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
 retrieval to a subset) plus an optional `session_id` (enables the per-session sticky

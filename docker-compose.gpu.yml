@@ -1,0 +1,22 @@
+# GPU override for Ollama inference.
+#
+# Generation is ~99.9% of answer latency on this stack; a CUDA GPU is a 10-50x win over
+# CPU with no code change. This file only adds a GPU device reservation to the `ollama`
+# service — everything else stays as docker-compose.yml defines it.
+#
+# Requires: an NVIDIA GPU + the NVIDIA Container Toolkit on the host.
+#
+# Usage (compose merges both files; the override wins on conflicts):
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# With a GPU you can drop back to a larger, higher-quality model (OLLAMA_MODEL=llama3:8b)
+# and raise OLLAMA_NUM_CTX / OLLAMA_NUM_PREDICT in .env — the CPU tuning no longer applies.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
