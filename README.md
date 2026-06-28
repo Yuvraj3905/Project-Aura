@@ -130,6 +130,8 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    - `does the API support OAuth 2.0 with custom claims` — `tech_query` → grounded
      answer with **clickable source chips** beneath it; click one to reveal the exact
      document passage the answer was grounded in (fetched via `GET /chunks/{doc}/{ordinal}`).
+     Each answer also shows **👍/👎 buttons** — a rating posts to `/feedback` and surfaces
+     on the dashboard as an answer-quality signal.
    - `what is the request timeout limit for the billing service` — same path; cites
      the chunk that mentions the limit.
    - `what is the capital of France` — off-topic; the cosine score falls below the
@@ -147,12 +149,15 @@ its status flip to **ready** over WebSocket, then ask a technical question or sa
    - Asks which model you want (`product`).
    - Asks for your email — malformed emails are rejected and re-asked.
    - Confirms and writes a row to `orders` (status `pending`) via ml-service `/orders`.
+   - If SMTP is configured (`SMTP_HOST` set), the customer gets a confirmation email and
+     `SALES_EMAIL` is notified; otherwise sending is skipped and only the DB row is written.
 5. **Request a callback (lead capture).** Say `please have someone contact me` (or
    "send me more info", "I'm interested, follow up"). The `request_contact` intent runs
    the `lead_form`:
    - Asks for your name, then email.
    - Writes a row to `leads` (status `new`, tagged with what you were asking about)
-     via ml-service `/leads`, so a specialist can follow up.
+     via ml-service `/leads`, so a specialist can follow up. With SMTP configured, the
+     prospect is acknowledged by email and `SALES_EMAIL` is notified of the new lead.
 6. **Multi-day continuation.** Rasa persists session state in Postgres (24-hour
    default expiration, slots carry over), so re-opening a conversation with the same
    `sessionId` resumes context.
@@ -383,7 +388,7 @@ L2-normalized for cosine search). Endpoints: `GET /health`, `POST /embed`,
 `POST /ingest`, `POST /answer`, `POST /answer/stream` (SSE), `GET /chunks/{doc}/{ordinal}`
 (source text behind a citation), `POST /tickets`, `GET /tickets`, `PATCH /tickets/{id}`,
 `POST /leads`, `GET /leads`, `POST /orders`, `GET /orders`, `PATCH /orders/{id}`,
-`POST /documents/retag`, `GET /usage`.
+`POST /feedback`, `GET /feedback` (answer 👍/👎), `POST /documents/retag`, `GET /usage`.
 
 `/answer` and `/answer/stream` accept an optional `document_ids` filter (restrict
 retrieval to a subset) plus an optional `session_id` (enables the per-session sticky

@@ -52,6 +52,15 @@ export async function GET() {
     return NextResponse.json({ error: "usage unavailable" }, { status: 502 });
   }
 
+  // Answer-quality signal — 👍/👎 counts. Best-effort: zeros beat a failed page.
+  let feedback = { up: 0, down: 0, total: 0 };
+  try {
+    const fb = await fetch(`${ML_SERVICE_URL}/feedback`, { cache: "no-store" });
+    if (fb.ok) feedback = await fb.json();
+  } catch {
+    // leave zeros
+  }
+
   const comparison = MODELS.map((m) => ({
     model: m.name,
     input_per_million: m.price[0],
@@ -66,5 +75,5 @@ export async function GET() {
     ).toFixed(4),
   }));
 
-  return NextResponse.json({ stats, comparison, local_cost_usd: 0 });
+  return NextResponse.json({ stats, comparison, local_cost_usd: 0, feedback });
 }

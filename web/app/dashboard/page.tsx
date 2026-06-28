@@ -78,6 +78,7 @@ interface CostRow {
 }
 interface Usage {
   stats: UsageStats; comparison: CostRow[]; local_cost_usd: number;
+  feedback?: { up: number; down: number; total: number };
 }
 
 function fmtAge(iso: string): string {
@@ -335,6 +336,13 @@ function UsagePanel({ usage }: { usage: Usage }) {
         <Stat label="Tokens (in / out)" value={`${fmtNum(s.prompt_tokens)} / ${fmtNum(s.completion_tokens)}`} sub={`${fmtNum(s.total_tokens)} total`} />
         <Stat label="Avg latency" value={`${(s.avg_latency_ms / 1000).toFixed(1)}s`} sub="per generated answer" />
         <Stat label="Aura cost" value="$0.00" sub="local inference" />
+        {usage.feedback && usage.feedback.total > 0 && (
+          <Stat
+            label="Answer feedback"
+            value={`👍 ${usage.feedback.up} / 👎 ${usage.feedback.down}`}
+            sub={`${Math.round((usage.feedback.up / usage.feedback.total) * 100)}% positive`}
+          />
+        )}
       </div>
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
         <thead>

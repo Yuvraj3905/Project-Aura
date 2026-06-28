@@ -12,10 +12,11 @@ anti-hallucination guardrails (grounding floor, variant guard, sticky scope) · 
 rewrite · sales funnel (leads + orders) · semantic answer cache · eval harness · CPU
 speed tuning.
 
-**Done 2026-06-24** — the three top value-to-effort items: **citation → source highlight**,
-**cache pre-warm**, **GPU inference path**. See each below. Verified: pytest green, web
-typecheck clean, `/chunks` live (valid + 404), pre-warm confirmed (exact + paraphrase both
-`cached` in ~0.1 s). GPU path is config-only — needs a CUDA host to runtime-test.
+**Done 2026-06-24** — five items: **citation → source highlight**, **cache pre-warm**,
+**GPU inference path**, **order & lead email**, **answer feedback loop**. See each below.
+Verified: pytest 81 green, web typecheck clean, `/chunks` + `/feedback` live, pre-warm
+confirmed (exact + paraphrase both `cached` ~0.1 s). GPU + SMTP are config-only — need a
+CUDA host / mail relay to runtime-test; both no-op safely when unconfigured.
 
 ## 01 · Product depth — make answers do more
 
@@ -23,7 +24,7 @@ typecheck clean, `/chunks` live (valid + 404), pre-warm confirmed (exact + parap
 |---|---|---|---|
 | ✅ **Citation → source highlight** ★ | S–M | High | **Done.** Each citation is a clickable chip that fetches the source passage (ml-service `GET /chunks/{doc}/{ordinal}` → web `/api/chunks/...`) and shows it inline — a customer can verify every claim against the document text. No new model. |
 | True multi-product routing | M | High | Today `PRIMARY_PRODUCT` pins one product. Per-query LLM routing picks the right product's docs per question → real multi-catalog KB. |
-| Answer feedback loop | S | Med | 👍/👎 + regenerate on each answer, logged to `llm_usage`. Turns the dashboard into a quality signal, not just a cost meter. |
+| ✅ Answer feedback loop | S | Med | **Done.** 👍/👎 chips under every streamed answer → `POST /feedback` → `answer_feedback` table (migration 0007); the dashboard usage panel shows up/down counts + % positive. |
 
 ## 02 · Sales funnel — deepen it
 
@@ -32,7 +33,7 @@ The funnel captures one order or one lead; real deals are multi-item and need fo
 | Feature | Effort | Value | Notes |
 |---|---|---|---|
 | Quote / multi-item cart | M | High | Accumulate several products before ordering; compute totals. Replaces single-product `order_form`. |
-| Order & lead email | S | Med | Orders/leads write a DB row only. Send real SMTP confirmation + notify a specialist. |
+| ✅ Order & lead email | S | Med | **Done.** `app/email.py` (stdlib smtplib) sends order confirmations to the customer + lead/order notifications to `SALES_EMAIL`, fired from the `/orders` and `/leads` endpoints. No-op when `SMTP_HOST` unset, so the funnel never blocks on mail. |
 | Lead scoring & handoff | M | Med | Tag leads by intent strength; push hot leads to Slack/email for fast human follow-up. |
 
 ## 03 · Answer quality — tighten and measure
@@ -62,9 +63,9 @@ Today the stack is loopback-bound and trusts its caller. A real deployment needs
 1. ~~**GPU inference path** — S~~ — ✅ done.
 2. ~~**Cache pre-warm** — S~~ — ✅ done.
 3. ~~**Citation → source highlight** ★ — S–M~~ — ✅ done.
-4. **Order & lead email** — S — closes the loop the funnel implies. *(next up)*
-5. **Answer feedback loop** — S — dashboard becomes a quality signal.
-6. **Quote / multi-item cart** — M — real deals aren't single-item.
+4. ~~**Order & lead email** — S~~ — ✅ done.
+5. ~~**Answer feedback loop** — S~~ — ✅ done.
+6. **Quote / multi-item cart** — M — real deals aren't single-item. *(next up)*
 7. **True multi-product routing** — M — only if the KB goes multi-catalog.
 8. **Graded LLM-judge evals** — M — needed before any quality tuning.
 9. **Cross-encoder reranker** — M — precision gain vs added CPU cost.

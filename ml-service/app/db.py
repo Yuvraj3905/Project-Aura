@@ -260,3 +260,30 @@ def fetch_chunk(conn, document_id: str, ordinal: int) -> dict | None:
     if row is None:
         return None
     return {"document_id": document_id, "ordinal": ordinal, "filename": row[1], "content": row[0]}
+
+
+def create_feedback(conn, query: str, rating: str, answer: str | None = None,
+                    session_id: str | None = None) -> str:
+    """Record a 👍/👎 on an answer. `answer` is a snippet kept for dashboard context."""
+    row = conn.execute(
+        """
+        INSERT INTO answer_feedback (session_id, query, answer, rating)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id
+        """,
+        (session_id, query, (answer or "")[:500], rating),
+    ).fetchone()
+    return str(row[0])
+
+
+def feedback_stats(conn) -> dict:
+    """Return {up, down, total} feedback counts for the dashboard quality signal."""
+    row = conn.execute(
+        """
+        SELECT count(*) FILTER (WHERE rating = 'up')   AS up,
+               count(*) FILTER (WHERE rating = 'down') AS down,
+               count(*)                                AS total
+          FROM answer_feedback
+        """,
+    ).fetchone()
+    return {"up": row[0], "down": row[1], "total": row[2]}

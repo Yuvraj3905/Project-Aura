@@ -14,8 +14,10 @@ from .config import settings
 from .db import (
     create_lead,
     create_order,
+    create_feedback,
     create_ticket,
     documents_missing_product,
+    feedback_stats,
     fetch_chunk,
     get_conn,
     list_leads,
@@ -25,6 +27,7 @@ from .db import (
     update_order_status,
     update_ticket_status,
 )
+from .email import lead_notification, order_confirmation
 from .llm import classify_product
 from .embeddings import embed_texts
 from .ingest import ingest_document
@@ -206,6 +209,8 @@ def create_lead_endpoint(req: LeadRequest) -> LeadResponse:
             session_id=req.session_id,
         )
         conn.commit()
+    # Best-effort: acknowledge to the prospect + notify sales (no-op if SMTP unconfigured).
+    lead_notification(req.email, req.name, req.product_interest)
     return LeadResponse(lead_id=lead_id)
 
 
@@ -239,6 +244,8 @@ def create_order_endpoint(req: OrderRequest) -> OrderResponse:
             session_id=req.session_id,
         )
         conn.commit()
+    # Best-effort: email the customer their confirmation (no-op if SMTP unconfigured).
+    order_confirmation(req.email, req.product, req.quantity)
     return OrderResponse(order_id=order_id)
 
 
@@ -306,6 +313,31 @@ def get_chunk(document_id: str, ordinal: int) -> dict:
     if chunk is None:
         raise HTTPException(status_code=404, detail="chunk not found")
     return chunk
+
+
+class FeedbackRequest(BaseModel):
+    query: str
+    rating: str  # "up" | "down"
+    answer: str | None = None
+    session_id: str | None = None
+
+
+@app.post("/feedback")
+def post_feedback(req: FeedbackRequest) -> dict:
+    """Record a 👍/👎 on an answer so the dashboard can track answer quality."""
+    if req.rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+    with get_conn() as conn:
+        fid = create_feedback(conn, req.query, req.rating, req.answer, req.session_id)
+        conn.commit()
+    return {"feedback_id": fid, "rating": req.rating}
+
+
+@app.get("/feedback")
+def get_feedback() -> dict:
+    """Aggregate feedback counts (up / down / total) for the dashboard."""
+    with get_conn() as conn:
+        return feedback_stats(conn)
 
 
 @app.get("/usage")

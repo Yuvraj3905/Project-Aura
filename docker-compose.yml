@@ -29,6 +29,7 @@ services:
       - ./db/migrations/0004_leads_orders.sql:/docker-entrypoint-initdb.d/04_leads_orders.sql:ro
       - ./db/migrations/0005_hybrid_semantic.sql:/docker-entrypoint-initdb.d/05_hybrid_semantic.sql:ro
       - ./db/migrations/0006_document_product.sql:/docker-entrypoint-initdb.d/06_document_product.sql:ro
+      - ./db/migrations/0007_answer_feedback.sql:/docker-entrypoint-initdb.d/07_answer_feedback.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aura -d aura"]
       interval: 5s

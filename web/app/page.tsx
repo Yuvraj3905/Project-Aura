@@ -30,6 +30,8 @@ interface Msg {
   streaming?: boolean;
   cached?: boolean;
   citations?: Citation[];
+  query?: string; // the question this answer responded to (for feedback)
+  feedback?: "up" | "down"; // set once the user rates it
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -47,6 +49,22 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   // Fetched source text behind a citation, keyed "docId:ordinal". "loading" while in flight.
   const [openSrc, setOpenSrc] = useState<Record<string, { filename: string; content: string } | "loading">>({});
+
+  // Record a 👍/👎 on an answer (once). Marks the message locally, then fires best-effort.
+  async function sendFeedback(idx: number, rating: "up" | "down") {
+    const m = messages[idx];
+    if (!m || m.feedback) return;
+    setMessages((ms) => ms.map((x, i) => (i === idx ? { ...x, feedback: rating } : x)));
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ query: m.query ?? "", rating, answer: m.text, session_id: sessionId }),
+      });
+    } catch {
+      // best-effort; the local mark already happened
+    }
+  }
 
   // Toggle the source passage behind a citation: fetch + show, or collapse if already open.
   async function toggleSource(documentId: string, ordinal: number) {
@@ -157,6 +175,7 @@ export default function Home() {
             streaming: false,
             cached: payload.cached,
             citations: (payload.citations ?? []) as Citation[],
+            query,
           });
         } else if (ev === "error") {
           appendAura({ text: "The knowledge engine is unavailable right now.", streaming: false });
@@ -340,6 +359,30 @@ export default function Home() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              {m.role === "aura" && !m.streaming && m.query && (
+                <div style={{ marginTop: 4, fontSize: 13, color: "#666" }}>
+                  {m.feedback ? (
+                    <span>Thanks for the feedback!</span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => sendFeedback(i, "up")}
+                        title="This answer was helpful"
+                        style={{ border: "none", background: "none", cursor: "pointer", fontSize: 15 }}
+                      >
+                        👍
+                      </button>
+                      <button
+                        onClick={() => sendFeedback(i, "down")}
+                        title="This answer missed the mark"
+                        style={{ border: "none", background: "none", cursor: "pointer", fontSize: 15 }}
+                      >
+                        👎
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
             </div>

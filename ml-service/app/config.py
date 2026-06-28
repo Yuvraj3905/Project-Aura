@@ -94,5 +94,17 @@ class Settings(BaseSettings):
     # are auto-tagged with a product at ingest.
     primary_product: str = ""
 
+    # --- Transactional email (order/lead confirmations) ---
+    # All optional: if smtp_host is empty, email sending is a no-op (the DB row is still
+    # written), so the stack works out of the box with no mail server. Point at any SMTP
+    # relay (e.g. Mailpit/MailHog in dev, SES/Postmark in prod).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "aura@example.com"      # From: address on outgoing mail
+    smtp_starttls: bool = True               # most relays want STARTTLS on 587
+    sales_email: str = ""                    # internal recipient notified of new leads/orders
+
 
 settings = Settings()
