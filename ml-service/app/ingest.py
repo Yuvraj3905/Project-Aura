@@ -1,6 +1,6 @@
 """Ingestion orchestrator: file -> summary -> chunks -> embeddings -> store.
 
-Called by the Node worker (which picked the job off pg-boss). On any failure the
+Called by the Node worker (which picked the job off BullMQ). On any failure the
 document is marked 'failed' and the error re-raised so the worker can retry / surface it.
 """
 import logging

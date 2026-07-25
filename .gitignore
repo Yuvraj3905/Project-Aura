@@ -21,6 +21,7 @@ venv/
 out/
 build/
 dist/
+*.tsbuildinfo
 
 # rasa
 .rasa/

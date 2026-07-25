@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pool } from "@/lib/db";
+import { getQueue, ProcessDocumentJob } from "@/lib/queue";
+import type { Job } from "bullmq";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Full request trail for one document: row + pg-boss job history. */
+const STATES = ["waiting", "active", "completed", "failed", "delayed"] as const;
+
+function toRow(job: Job<ProcessDocumentJob>, state: string) {
+  return {
+    id: job.id,
+    state,
+    retrycount: job.attemptsMade,
+    retrylimit: job.opts.attempts ?? 1,
+    output: String(job.returnvalue ?? job.failedReason ?? "").slice(0, 400),
+    createdon: new Date(job.timestamp).toISOString(),
+    startedon: job.processedOn ? new Date(job.processedOn).toISOString() : null,
+    completedon: job.finishedOn ? new Date(job.finishedOn).toISOString() : null,
+  };
+}
+
+/** Full request trail for one document: row + BullMQ job history. */
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { id } = params;
 
@@ -20,24 +37,17 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 
   let jobs: unknown[] = [];
   try {
-    const j = await pool.query(
-      `SELECT id, state, retrycount, retrylimit,
-              left(coalesce(output::text,''), 400) AS output,
-              createdon, startedon, completedon
-         FROM (
-           SELECT id, state, retrycount, retrylimit, data, output,
-                  createdon, startedon, completedon FROM pgboss.job
-           UNION ALL
-           SELECT id, state, retrycount, retrylimit, data, output,
-                  createdon, startedon, completedon FROM pgboss.archive
-         ) j
-        WHERE j.data->>'documentId' = $1
-        ORDER BY createdon ASC`,
-      [id],
+    const queue = getQueue();
+    // ponytail: per-state bucket + filter by documentId, no job index by document.
+    const buckets = await Promise.all(
+      STATES.map(async (state) => {
+        const found = await queue.getJobs([state], 0, 49);
+        return found.filter((j) => j.data?.documentId === id).map((j) => toRow(j, state));
+      }),
     );
-    jobs = j.rows;
+    jobs = buckets.flat().sort((a, b) => a.createdon.localeCompare(b.createdon));
   } catch {
-    /* pgboss schema may not exist yet */
+    /* redis unreachable — degrade to doc row only */
   }
 
   return NextResponse.json({ document: doc.rows[0], jobs });

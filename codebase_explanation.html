@@ -261,14 +261,15 @@
             ┌────────────────┐ ┌──────┐ ┌──────────────────┐
             │ postgres :5440 │ │ rasa │ │ ml-service :8100 │
             │  pgvector      │ │:5105 │ │  embed · ingest  │
-            │  pgboss.*      │ └──┬───┘ │  RAG · tickets   │
-            │  rasa events   │    ▼     └───┬─────────┬────┘
-            └──────┬─────────┘ ┌─────────┐  │         │
-      LISTEN/NOTIFY│           │ actions │  ▼         ▼
-            ┌──────┴──────┐    │  :5155  │ ┌───────┐ ┌────────┐
-            │ worker (Node│    └─────────┘ │ redis │ │ ollama │
-            │ pg-boss)    │───── /ingest ─▶│ :6390 │ │ :11435 │
-            └─────────────┘                └───────┘ └────────┘
+            │  rasa events   │ └──┬───┘ │  RAG · tickets   │
+            └──────┬─────────┘    ▼     └───┬─────────┬────┘
+      LISTEN/NOTIFY│           ┌─────────┐  │         │
+            ┌──────┴──────┐    │ actions │  ▼         ▼
+            │ worker (Node│    │  :5155  │ ┌───────┐ ┌────────┐
+            │ BullMQ)     │    └─────────┘ │ redis │ │ ollama │
+            └──────┬──────┘                │ :6390 │ │ :11435 │
+                   │◀── enqueue (db1) ──────│ db0/1 │ └────────┘
+                   └──────────── /ingest ──▶└───────┘
                 </div>
             </div>
         </section>
@@ -285,7 +286,7 @@
                     </div>
                     <div class="dir-item">
                         <span class="dir-name">worker/</span>
-                        <span class="dir-desc">Node.js entrypoint for the pg-boss consumer. Processes background jobs enqueued by the API.</span>
+                        <span class="dir-desc">Node.js entrypoint for the BullMQ consumer. Processes background jobs enqueued by the API.</span>
                     </div>
                     <div class="dir-item">
                         <span class="dir-name">lib/</span>
@@ -298,7 +299,7 @@
                 </div>
                 <h3>Key Responsibilities:</h3>
                 <ul>
-                    <li><strong>Uploads:</strong> Receives files, saves them, and enqueues a <code>process_document</code> job using <code>pg-boss</code>.</li>
+                    <li><strong>Uploads:</strong> Receives files, saves them, and enqueues a <code>process_document</code> job using <code>BullMQ</code>.</li>
                     <li><strong>Chat Interface:</strong> Communicates with Rasa (dialogue) and ml-service (streaming responses via SSE).</li>
                     <li><strong>Dashboard:</strong> Operations view for monitoring jobs, documents, sessions, and tickets.</li>
                 </ul>
@@ -361,8 +362,8 @@
         <section id="db" class="fade-in">
             <h2>4. Database & Queue <code>/db</code></h2>
             <div class="card">
-                <h3>PostgreSQL + pgvector + pg-boss</h3>
-                <p>Postgres acts as the central nervous system for state and vector storage.</p>
+                <h3>PostgreSQL + pgvector, Redis + BullMQ</h3>
+                <p>Postgres acts as the central nervous system for state and vector storage; Redis backs both the answer cache and the job queue.</p>
                 <div class="dir-tree">
                     <div class="dir-item">
                         <span class="dir-name">db/init.sql</span>
@@ -376,7 +377,7 @@
                 <h3>Key Components:</h3>
                 <ul>
                     <li><strong>pgvector:</strong> Used to store and perform cosine similarity search on document embeddings.</li>
-                    <li><strong>pg-boss:</strong> A Postgres-based job queue for handling asynchronous document ingestion without needing a separate message broker like RabbitMQ.</li>
+                    <li><strong>BullMQ (Redis, db1):</strong> A Redis-backed job queue for handling asynchronous document ingestion; separate db index from the ml-service answer cache (db0) on the same Redis instance.</li>
                 </ul>
             </div>
         </section>
@@ -388,7 +389,7 @@
                 <h3>A. Document Ingestion Flow</h3>
                 <ol>
                     <li>User uploads file via UI → <code>web/app/api/upload/route.ts</code></li>
-                    <li>File is saved, and a <code>process_document</code> job is added to Postgres via pg-boss.</li>
+                    <li>File is saved, and a <code>process_document</code> job is added to Redis via BullMQ.</li>
                     <li>Node <code>worker</code> picks up the job and sends a REST call to <code>ml-service /ingest</code>.</li>
                     <li><code>ml-service</code> extracts text, runs hierarchical summarization via Ollama, chunks it, generates embeddings, and saves to pgvector.</li>
                     <li>Postgres fires a <code>NOTIFY kb_ready</code> event.</li>

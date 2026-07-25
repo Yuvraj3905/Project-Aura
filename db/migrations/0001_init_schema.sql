@@ -3,8 +3,10 @@
 -- the full schema. Requires the `vector` extension (created by 00_init.sql first).
 --
 -- Not created here (managed at runtime by their owners):
---   pgboss.*  — created by pg-boss on first connection (Node worker / web)
 --   Rasa SQLAlchemyTrackerStore tables — created by Rasa on first run
+--
+-- Job queue (process_document) lives in Redis via BullMQ, not Postgres — see
+-- web/lib/queue.ts.
 
 -- documents: one row per uploaded source file ------------------------------------
 CREATE TABLE IF NOT EXISTS documents (

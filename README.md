@@ -8,11 +8,11 @@ hallucinating. 100% open source / free stack — local inference, no paid LLM AP
 
 | Service        | Port  | Role |
 |----------------|-------|------|
-| postgres       | 5440  | pgvector store + pg-boss queue + Rasa tracker store |
+| postgres       | 5440  | pgvector store + Rasa tracker store |
 | ollama         | 11435 | local `llama3:8b` — summaries + answers |
-| redis          | 6390  | cache — query embeddings + grounded answers |
+| redis          | 6390  | cache (db0) — query embeddings + grounded answers; BullMQ job queue (db1) |
 | ml-service     | 8100  | Python/FastAPI — embeddings, ingestion, RAG |
-| worker         | —     | Node — pg-boss consumer |
+| worker         | —     | Node — BullMQ consumer |
 | rasa           | 5105  | dialogue manager |
 | rasa-actions   | 5155  | custom action server |
 | web            | 3100  | Next.js — UI + API + WebSocket |
@@ -30,22 +30,26 @@ hallucinating. 100% open source / free stack — local inference, no paid LLM AP
             ┌────────────────┐ ┌──────┐ ┌──────────────────┐
             │ postgres :5440 │ │ rasa │ │ ml-service :8100 │
             │  pgvector      │ │:5105 │ │  embed · ingest  │
-            │  pgboss.*      │ └──┬───┘ │  RAG · tickets   │
-            │  rasa events   │    ▼     └───┬─────────┬────┘
-            └──────┬─────────┘ ┌─────────┐  │         │
-      LISTEN/NOTIFY│           │ actions │  ▼         ▼
-            ┌──────┴──────┐    │  :5155  │ ┌───────┐ ┌────────┐
-            │ worker (Node│    └─────────┘ │ redis │ │ ollama │
-            │ pg-boss)    │───── /ingest ─▶│ :6390 │ │ :11435 │
-            └─────────────┘                └───────┘ └────────┘
+            │  rasa events   │ └──┬───┘ │  RAG · tickets   │
+            └────────────────┘    ▼     └───┬─────────┬────┘
+                                ┌─────────┐  │         │
+                                │ actions │  ▼         ▼
+                                │  :5155  │ ┌───────┐ ┌────────┐
+                                └─────────┘ │ redis │ │ ollama │
+                                            │ :6390 │ │ :11435 │
+            ┌─────────────┐   BullMQ job   │ db0    │ └────────┘
+            │ worker (Node│◀── (db1) ──────│ cache  │
+            │ BullMQ)     │                │ db1    │
+            └──────┬──────┘                │ queue  │
+                   └───────────── /ingest ─────────────▶ ml-service :8100
 ```
 
 ## Repository layout
 
 ```
-web/            Next.js App Router + custom server (ws) + Node pg-boss worker
+web/            Next.js App Router + custom server (ws) + Node BullMQ worker
   app/          UI (chat + upload), /dashboard, /api routes
-  worker/       pg-boss consumer entrypoint
+  worker/       BullMQ consumer entrypoint
   lib/          db pool, queue, NOTIFY helpers
 ml-service/     Python / FastAPI
   app/          config, db, embeddings, llm (Ollama), cache (Redis), ingest
@@ -64,7 +68,7 @@ docs/           local-only docs — git-ignored, never pushed
 
 A self-contained deep-dive into every concept in the system — Contextual RAG, embeddings
 and the bge-small similarity baseline, pgvector/HNSW, chunking, hierarchical map-reduce
-summarization, the two-layer anti-hallucination guardrail, pg-boss and the Node↔Python
+summarization, the two-layer anti-hallucination guardrail, BullMQ and the Node↔Python
 split, NOTIFY/LISTEN→WebSocket, Rasa (DIET pipeline, rules vs stories, form FSM, tracker
 store), SSE streaming with the stream-directive pattern, Redis cache layers and
 invalidation, the security model, schema and API reference — lives at
@@ -168,8 +172,8 @@ Auto-refreshing operations view of the request travel across services:
 
 - **Documents** — every upload with status pill (`uploaded` → `processing` →
   `ready`/`failed`), chunk count, age. Click a row for the full trail (doc-level
-  summary + matching pg-boss job history with retries, durations, errors).
-- **pg-boss jobs** — queue name, state, retry count, linked `documentId`, durations.
+  summary + matching BullMQ job history with retries, durations, errors).
+- **BullMQ jobs** — queue name, state, retry count, linked `documentId`, durations.
 - **Chat sessions** — distinct Rasa `sender_id` with user/bot turn counts. Click one
   to see the event stream (intents + actions in order).
 - **Tickets** — recent `support_tickets` rows with **status transition buttons**
@@ -349,7 +353,7 @@ also shows what the answer-cache saved by not re-generating. Raw aggregates: `GE
 ### Data flow
 
 - **Ingestion:** upload → `/api/upload` saves the file + enqueues a `process_document`
-  job (pg-boss) → Node `worker` calls ml-service `/ingest` → extract → hierarchical
+  job (BullMQ) → Node `worker` calls ml-service `/ingest` → extract → hierarchical
   summary (Ollama) → token chunks with the summary prepended → embed (bge-small) →
   store → `NOTIFY kb_ready` → WebSocket pushes status to the UI.
 - **Chat:** `/api/chat` → Rasa. `tech_query` → `action_tech_query` returns a stream

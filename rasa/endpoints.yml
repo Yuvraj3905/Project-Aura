@@ -1,7 +1,7 @@
 action_endpoint:
   url: "http://rasa-actions:5055/webhook"
 
-# Multi-day conversation state persisted in Postgres (same DB as pgvector / pg-boss).
+# Multi-day conversation state persisted in Postgres (same DB as pgvector).
 tracker_store:
   type: SQL
   dialect: postgresql

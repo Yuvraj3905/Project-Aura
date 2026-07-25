@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pool } from "@/lib/db";
-import { getBoss, PROCESS_DOCUMENT } from "@/lib/queue";
+import { getQueue, PROCESS_DOCUMENT } from "@/lib/queue";
 
 export const runtime = "nodejs";
 
@@ -54,13 +54,13 @@ export async function POST(req: NextRequest) {
     [id, file.name, storageName, mime],
   );
 
-  // Enqueue the heavy work. retryLimit + backoff: transient failures (e.g. Ollama
-  // briefly down) are retried; expireInMinutes bounds a stuck job.
-  const boss = await getBoss();
-  await boss.send(
+  // Enqueue the heavy work. attempts + exponential backoff: transient failures (e.g.
+  // Ollama briefly down) are retried.
+  const queue = getQueue();
+  await queue.add(
     PROCESS_DOCUMENT,
     { documentId: id },
-    { retryLimit: 3, retryBackoff: true, expireInMinutes: 30 },
+    { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
   );
 
   // 202 Accepted: work is queued, not done. The client learns completion over WebSocket.

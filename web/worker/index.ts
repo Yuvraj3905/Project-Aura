@@ -1,11 +1,12 @@
-import { getBoss, PROCESS_DOCUMENT, ProcessDocumentJob } from "../lib/queue";
+import { Worker } from "bullmq";
+import { makeQueueConnection, PROCESS_DOCUMENT, ProcessDocumentJob } from "../lib/queue";
 import { notify, CH_KB_READY, CH_KB_FAILED } from "../lib/notify";
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL ?? "http://ml-service:8100";
 
 /**
  * Process one document job by delegating the CPU-heavy work to the Python ml-service.
- * Throwing marks the job failed so pg-boss retries it (per the send options).
+ * Throwing marks the job failed so BullMQ retries it (per the queue's job options).
  */
 async function ingest(job: { data: ProcessDocumentJob }): Promise<{ nChunks: number }> {
   const { documentId } = job.data;
@@ -22,26 +23,27 @@ async function ingest(job: { data: ProcessDocumentJob }): Promise<{ nChunks: num
 }
 
 async function main(): Promise<void> {
-  const boss = await getBoss();
+  const worker = new Worker<ProcessDocumentJob, { nChunks: number }>(
+    PROCESS_DOCUMENT,
+    ingest,
+    { connection: makeQueueConnection() },
+  );
 
-  // Consume jobs. The return value becomes the completion job's `response`.
-  await boss.work<ProcessDocumentJob>(PROCESS_DOCUMENT, ingest as never);
-
-  // Terminal-state notifications (fires once per job after retries are exhausted),
-  // so the UI is never told "ready"/"failed" prematurely during retries.
-  await boss.onComplete(PROCESS_DOCUMENT, async (job: never) => {
-    const j = job as {
-      data: { state: string; request: { data: ProcessDocumentJob }; response?: { nChunks?: number } };
-    };
-    const documentId = j.data.request?.data?.documentId;
-    if (!documentId) return;
-
-    if (j.data.state === "completed") {
-      await notify(CH_KB_READY, { documentId, nChunks: j.data.response?.nChunks });
-    } else {
-      await notify(CH_KB_FAILED, { documentId, error: "ingestion failed" });
-    }
+  // Fires once per job, only after it actually succeeds.
+  worker.on("completed", async (job, result) => {
+    await notify(CH_KB_READY, { documentId: job.data.documentId, nChunks: result?.nChunks });
   });
+
+  // Fires on every failed attempt — only notify once retries are exhausted, so the UI
+  // is never told "failed" prematurely while a retry is still pending.
+  worker.on("failed", async (job, err) => {
+    if (!job) return;
+    const attempts = job.opts.attempts ?? 1;
+    if (job.attemptsMade < attempts) return;
+    await notify(CH_KB_FAILED, { documentId: job.data.documentId, error: err.message });
+  });
+
+  worker.on("error", (err) => console.error("[worker]", err));
 
   console.log(`[worker] subscribed to "${PROCESS_DOCUMENT}", ml-service=${ML_SERVICE_URL}`);
 }

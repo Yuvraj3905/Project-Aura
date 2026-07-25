@@ -67,7 +67,11 @@ services:
     entrypoint: ["/bin/sh", "-c", "ollama pull llama3:8b"]
     restart: "no"
 
-  # Cache: query embeddings + grounded answers. Loopback-bound.
+  # db0: cache — query embeddings + grounded answers (ml-service). db1: BullMQ job
+  # queue (web/worker). Loopback-bound.
+  # ponytail: allkeys-lru can evict BullMQ job keys under memory pressure, dropping
+  # queued jobs silently. Fine at this queue's volume; give BullMQ its own Redis
+  # (or maxmemory-policy noeviction) if job loss becomes a real risk.
   redis:
     image: redis:7-alpine
     container_name: aura-redis
@@ -121,6 +125,7 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://aura:aura@postgres:5432/aura
+      REDIS_URL: redis://redis:6379/1
       ML_SERVICE_URL: http://ml-service:8100
       RASA_URL: http://rasa:5005
       UPLOAD_DIR: /data/uploads
@@ -141,10 +146,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       ml-service:
         condition: service_healthy
 
-  # pg-boss consumer — same image as web, different entrypoint. No port, no file access
+  # BullMQ consumer — same image as web, different entrypoint. No port, no file access
   # (it only relays job paths to ml-service).
   worker:
     build: ./web
@@ -153,9 +160,12 @@ services:
     command: ["npm", "run", "worker"]
     environment:
       DATABASE_URL: postgresql://aura:aura@postgres:5432/aura
+      REDIS_URL: redis://redis:6379/1
       ML_SERVICE_URL: http://ml-service:8100
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       ml-service:
         condition: service_healthy

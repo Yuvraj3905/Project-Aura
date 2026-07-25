@@ -9,10 +9,10 @@ const STATUS_COLOR: Record<string, string> = {
   ready: "#1a7f37",
   failed: "#b00020",
   created: "#888",
+  waiting: "#888",
   active: "#0969da",
   completed: "#1a7f37",
-  expired: "#b00020",
-  retry: "#b8860b",
+  delayed: "#b8860b",
 };
 
 interface Doc {
@@ -213,7 +213,7 @@ export default function Dashboard() {
         />
       </Section>
 
-      <Section title={`pg-boss jobs (${filteredJobs.length})`}>
+      <Section title={`BullMQ jobs (${filteredJobs.length})`}>
         <Table
           headers={["queue", "state", "retries", "documentId", "created", "completed"]}
           rows={filteredJobs.map((j) => [
